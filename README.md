@@ -11,6 +11,7 @@ Hermes Voice Web is a small self-hosted web console for a Raspberry Pi running H
 - Daily briefing for "今日简报 / 早安 / 今天怎么样" with weather plus Raspberry Pi service status.
 - Local reminders and todos for "提醒我..." / "我的提醒", stored on the Raspberry Pi and included in daily briefings.
 - Two voice input options: browser microphone recording and Raspberry Pi microphone recording.
+- Automatic half-duplex call mode: click once, speak naturally, pause to submit, hear the reply, and continue without clicking again.
 - Browser voice input uses browser STT first, then backend STT fallback when available.
 - Raspberry Pi voice input records on the server with `arecord`, then uses backend STT.
 - Edge TTS playback from Hermes audio cache.
@@ -87,6 +88,28 @@ Environment variables:
 - `VOICE_WEB_PI_PLAYBACK_COMMAND`: optional local audio playback command for Raspberry Pi speaker output. When unset, the backend tries common players such as `ffplay`, `mpv`, `cvlc`, `play`, `paplay`, `aplay`, and `afplay`.
 - `VOICE_WEB_PI_PLAYBACK_DEVICE`: optional manual ALSA playback override. When unset, the backend auto-discovers playback hardware from `aplay -l`, preferring non-HDMI devices first and falling back to HDMI.
 
+## Automatic Call Mode
+
+The browser call mode is deliberately half-duplex for the first usable version:
+
+1. `listening`: the browser microphone is open and local voice activity is measured.
+2. After roughly 1.1 seconds of silence, the microphone closes and the turn enters `processing`.
+3. The existing Hermes `/api/respond` or `/api/converse` path generates the answer and TTS audio.
+4. `speaking`: the browser plays the whole answer with the microphone closed.
+5. When playback ends, the controller returns to `listening` automatically.
+
+No-speech turns restart listening without consuming the error budget. Three consecutive network, model, transcription, or playback failures end the call; microphone permission failures end it immediately. `call-mode.js` owns this state machine and exposes a small dependency-injected interface, while `index.html` provides the browser microphone, Hermes API, playback, and UI adapters.
+
+Browser microphone access requires a secure context. The current Pi service is plain HTTP, so direct access through `http://192.168.5.12:8787` may display the page but modern browsers can refuse the microphone. For a computer on the same network, use a localhost SSH tunnel:
+
+```bash
+ssh -N -L 18787:127.0.0.1:8787 pi5
+```
+
+Then open `http://localhost:18787`, allow microphone access, and click **开始通话**. A trusted HTTPS deployment is the next step for direct phone/tablet access.
+
+This version does not include a wake word, full-duplex echo cancellation, or barge-in while XiaoQi is speaking. Those are later-stage latency and audio-pipeline improvements, not hidden claims of the basic mode.
+
 To inspect Pi capture devices:
 
 ```bash
@@ -141,13 +164,14 @@ If `snapshot_download` stalls on large Xet files, use a resumable or range-capab
 ```bash
 pip install -r requirements-dev.txt
 pytest -q
+node --test tests/test_call_mode.js
 ```
 
 The tests mock Hermes chat/TTS where needed, so they validate the web app without calling external model providers.
 
 ## Deployment Checklist
 
-1. Copy `server.py`, `index.html`, `requirements.txt`, and `scripts/run-voice-web.sh` to the Pi app directory.
+1. Copy `server.py`, `index.html`, `call-mode.js`, `requirements.txt`, and `scripts/run-voice-web.sh` to the Pi app directory.
 2. Confirm Hermes agent is installed and `HERMES_HOME` / `HERMES_AGENT` point to it.
 3. Start the app with `scripts/run-voice-web.sh`.
 4. Open `/health` and verify:
@@ -160,6 +184,7 @@ The tests mock Hermes chat/TTS where needed, so they validate the web app withou
 7. Submit `/api/respond` and confirm an audio URL.
 8. Submit `/api/converse` when backend STT is expected to work.
 9. Confirm `arecord -l` sees a microphone, then use the `树莓派录音` button or `POST /api/pi-record`.
+10. Open the app from a secure browser context, start automatic call mode, verify silence causes an automatic retry, and verify **挂断** releases the microphone and restores the other controls.
 
 ## Current Acceptance Status
 

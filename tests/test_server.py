@@ -90,6 +90,22 @@ def test_index_uses_xiaoqi_brand_and_visible_playback_controls(monkeypatch, tmp_
     assert "智能助手回复" in response.text
     assert "智能助手录音" in response.text
     assert "树莓派录音" not in response.text
+    assert "自动电话模式" in response.text
+    assert "开始通话" in response.text
+    assert "挂断" in response.text
+    assert '<script src="/call-mode.js"></script>' in response.text
+
+
+def test_call_mode_asset_is_served_without_cache(monkeypatch, tmp_path):
+    client, _ = configure_tmp_app(monkeypatch, tmp_path)
+
+    response = client.get("/call-mode.js")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["content-type"].startswith("text/javascript")
+    assert "createCallController" in response.text
+    assert 'LISTENING: "listening"' in response.text
 
 
 def test_chat_saves_exchange(monkeypatch, tmp_path):
@@ -311,14 +327,16 @@ def test_volcengine_stt_status_reports_missing_requirements(monkeypatch):
         lambda: {"stt": {"enabled": True, "provider": "volcengine", "volcengine": {"access_key": "token"}}},
     )
     monkeypatch.delenv("VOLCENGINE_ASR_APP_KEY", raising=False)
-    monkeypatch.delenv("VOICE_WEB_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("VOLCENGINE_ASR_CLUSTER", raising=False)
+    monkeypatch.delenv("VOLCENGINE_CLUSTER", raising=False)
 
     status = server._stt_status()
 
     assert status["provider"] == "volcengine"
     assert status["ready"] is False
     assert "app_key" in status["detail"]
-    assert "audio_base_url" in status["detail"]
+    assert "cluster" in status["detail"]
+    assert status["runtime"] == "volcengine-v2-ws"
 
 
 def test_volcengine_transcript_extraction_handles_common_shapes():
@@ -334,12 +352,14 @@ def test_stt_provider_statuses_include_volcengine_missing(monkeypatch):
         lambda: {"stt": {"enabled": True, "provider": "local", "volcengine": {"access_key": "token"}}},
     )
     monkeypatch.delenv("VOLCENGINE_ASR_APP_KEY", raising=False)
-    monkeypatch.delenv("VOICE_WEB_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("VOLCENGINE_ASR_CLUSTER", raising=False)
+    monkeypatch.delenv("VOLCENGINE_CLUSTER", raising=False)
 
     status = server._stt_provider_statuses()["volcengine"]
 
     assert status["ready"] is False
-    assert status["missing"] == ["app_key", "audio_base_url"]
+    assert status["missing"] == ["app_key", "cluster"]
+    assert status["runtime"] == "volcengine-v2-ws"
 
 
 def test_weather_endpoint_formats_open_meteo_payload(monkeypatch, tmp_path):

@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.playwright-cli/
 .venv/
 .DS_Store
 server.log

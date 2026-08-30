@@ -34,6 +34,7 @@ UPLOAD_DIR = HERMES_HOME / "voice_web_uploads"
 SESSIONS_FILE = HERMES_HOME / "voice-web" / "sessions.json"
 REMINDERS_FILE = HERMES_HOME / "voice-web" / "reminders.json"
 INDEX_FILE = Path(__file__).with_name("index.html")
+CALL_MODE_FILE = Path(__file__).with_name("call-mode.js")
 HERMES_TIMEOUT = int(os.environ.get("VOICE_WEB_HERMES_TIMEOUT", "300"))
 STT_TIMEOUT = int(os.environ.get("VOICE_WEB_STT_TIMEOUT", "180"))
 MAX_MESSAGE_CHARS = int(os.environ.get("VOICE_WEB_MAX_MESSAGE_CHARS", "12000"))
@@ -3207,6 +3208,15 @@ def _parse_duration(value: Any, default: int = 0) -> int:
 async def index() -> HTMLResponse:
     return HTMLResponse(
         INDEX_FILE.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/call-mode.js", response_class=FileResponse)
+async def call_mode_asset() -> FileResponse:
+    return FileResponse(
+        CALL_MODE_FILE,
+        media_type="text/javascript; charset=utf-8",
         headers={"Cache-Control": "no-store"},
     )
 

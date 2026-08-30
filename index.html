@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>生活助手小七</title>
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
     <style>
       :root {
         color-scheme: light;
@@ -174,6 +175,7 @@
       .badge {
         display: inline-flex;
         align-items: center;
+        flex: 0 0 auto;
         min-height: 30px;
         border: 1px solid var(--line);
         border-radius: 999px;
@@ -182,6 +184,7 @@
         background: #fff;
         font-size: 13px;
         font-weight: 700;
+        white-space: nowrap;
       }
 
       .badge.ok {
@@ -510,6 +513,94 @@
         min-width: 0;
       }
 
+      .call-mode {
+        margin-bottom: 14px;
+        border: 1px solid rgba(15, 118, 110, 0.28);
+        border-radius: 8px;
+        background: #f0fdfa;
+        padding: 12px;
+      }
+
+      .call-mode-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .call-indicator {
+        width: 12px;
+        height: 12px;
+        flex: 0 0 auto;
+        border: 2px solid #99f6e4;
+        border-radius: 999px;
+        background: var(--muted);
+      }
+
+      .call-indicator.listening {
+        background: var(--ok);
+        animation: call-pulse 1.2s ease-out infinite;
+      }
+
+      .call-indicator.processing,
+      .call-indicator.recovering {
+        background: var(--warn);
+      }
+
+      .call-indicator.speaking {
+        background: var(--blue);
+        animation: call-pulse 0.85s ease-out infinite;
+      }
+
+      .call-indicator.ended {
+        background: var(--danger);
+      }
+
+      .call-copy {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .call-title {
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 780;
+      }
+
+      .call-state {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .call-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px;
+        margin-top: 11px;
+      }
+
+      .call-actions button {
+        min-width: 0;
+      }
+
+      .call-note {
+        margin-top: 9px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      @keyframes call-pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.36);
+        }
+        75%,
+        100% {
+          box-shadow: 0 0 0 7px rgba(15, 118, 110, 0);
+        }
+      }
+
       .voice-status {
         min-height: 21px;
         margin-top: 10px;
@@ -694,7 +785,16 @@
           grid-template-columns: 1fr;
         }
 
+        .side-stack {
+          grid-row: 1;
+        }
+
+        .chat-panel {
+          grid-row: 2;
+        }
+
         .sidebar {
+          grid-row: 3;
           position: static;
         }
 
@@ -815,6 +915,20 @@
             <span id="voiceBadge" class="badge">待机</span>
           </div>
           <div class="panel-body">
+            <div class="call-mode">
+              <div class="call-mode-head">
+                <span id="callIndicator" class="call-indicator" aria-hidden="true"></span>
+                <div class="call-copy">
+                  <div class="call-title">自动电话模式</div>
+                  <div id="callState" class="call-state" aria-live="polite">待机，点击一次后会连续对话。</div>
+                </div>
+              </div>
+              <div class="call-actions">
+                <button id="startCall" class="primary" type="button">开始通话</button>
+                <button id="hangUp" class="danger" type="button" disabled>挂断</button>
+              </div>
+              <div class="call-note">基础版为半双工：你说完约 1.1 秒后自动发送，小七说完后自动继续听。</div>
+            </div>
             <label for="durationRange">最长录音时间</label>
             <div class="duration-row">
               <input id="durationRange" type="range" min="5" max="300" step="5" />
@@ -851,6 +965,7 @@
       </div>
     </main>
 
+    <script src="/call-mode.js"></script>
     <script>
       const $ = (selector) => document.querySelector(selector);
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -859,6 +974,8 @@
         activeMeta: $("#activeMeta"),
         activeTitle: $("#activeTitle"),
         bar: $("#bar"),
+        callIndicator: $("#callIndicator"),
+        callState: $("#callState"),
         chatBadge: $("#chatBadge"),
         chatStatus: $("#chatStatus"),
         composer: $("#composer"),
@@ -867,6 +984,7 @@
         durationNumber: $("#durationNumber"),
         durationRange: $("#durationRange"),
         healthRows: $("#healthRows"),
+        hangUp: $("#hangUp"),
         messages: $("#messages"),
         newSession: $("#newSession"),
         piRecord: $("#piRecord"),
@@ -880,6 +998,7 @@
         sessionList: $("#sessionList"),
         sessionTitle: $("#sessionTitle"),
         speakReply: $("#speakReply"),
+        startCall: $("#startCall"),
         stop: $("#stop"),
         textInput: $("#textInput"),
         transcriptPreview: $("#transcriptPreview"),
@@ -890,6 +1009,7 @@
 
       const state = {
         busy: false,
+        callActive: false,
         current: null,
         health: null,
         playTarget: localStorage.getItem("hermes.playTarget") === "pi" ? "pi" : "browser",
@@ -916,6 +1036,9 @@
       let piRecordJobId = "";
       let piPoll;
       let piStopRequested = false;
+      let callAudio;
+      let callAudioContext;
+      let callController;
 
       function escapeHtml(value) {
         return String(value || "")
@@ -969,6 +1092,7 @@
       async function requestJSON(path, options = {}) {
         const headers = { ...(options.headers || {}) };
         const init = { method: options.method || "GET", headers };
+        if (options.signal) init.signal = options.signal;
         if (options.body instanceof FormData) {
           init.body = options.body;
         } else if (options.body !== undefined) {
@@ -1027,9 +1151,19 @@
       }
 
       function setIdleVoiceControls() {
-        els.record.disabled = state.busy || !voiceAvailable();
-        els.piRecord.disabled = state.busy || !canUsePiRecord();
+        const callActive = state.callActive;
+        els.record.disabled = state.busy || callActive || !voiceAvailable();
+        els.piRecord.disabled = state.busy || callActive || !canUsePiRecord();
         els.stop.disabled = true;
+        els.startCall.disabled = state.busy || callActive || !voiceAvailable();
+        els.hangUp.disabled = !callActive;
+        els.durationRange.disabled = callActive;
+        els.durationNumber.disabled = callActive;
+        els.playBrowser.disabled = callActive;
+        els.playPi.disabled = callActive;
+        document.querySelectorAll("[data-seconds]").forEach((button) => {
+          button.disabled = callActive;
+        });
       }
 
       function renderHealth() {
@@ -1221,18 +1355,69 @@
         renderCurrent();
       }
 
-      async function playAudio(url) {
+      async function playAudio(url, options = {}) {
         if (!url) return;
         if (state.playTarget === "pi") {
-          try {
-            const data = await requestJSON("/api/pi-playback", { method: "POST", body: { audio_url: url } });
-            setChatStatus(`已发送到树莓派播放：${data.player || "播放器"}`, "ok");
-          } catch (error) {
-            setChatStatus(`树莓派播放失败：${error.message}`, "err");
-          }
+          const data = await requestJSON("/api/pi-playback", {
+            method: "POST",
+            body: { audio_url: url },
+            signal: options.signal,
+          });
+          setChatStatus(`已发送到树莓派播放：${data.player || "播放器"}`, "ok");
           return;
         }
-        new Audio(url).play().catch(() => {});
+
+        const audio = options.audioElement || new Audio();
+        audio.pause();
+        audio.src = url;
+        audio.playsInline = true;
+        audio.currentTime = 0;
+        return new Promise((resolve, reject) => {
+          const signal = options.signal;
+          let settled = false;
+          const cleanup = () => {
+            audio.removeEventListener("ended", onEnded);
+            audio.removeEventListener("error", onPlaybackError);
+            if (signal) signal.removeEventListener("abort", onAbort);
+          };
+          const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            callback(value);
+          };
+          const onEnded = () => finish(resolve);
+          const onPlaybackError = () =>
+            finish(
+              reject,
+              new XiaoQiCallMode.CallModeError("语音回复播放失败", "playback_error"),
+            );
+          const onAbort = () => {
+            audio.pause();
+            audio.removeAttribute("src");
+            finish(reject, new DOMException("通话已结束", "AbortError"));
+          };
+
+          if (signal && signal.aborted) {
+            onAbort();
+            return;
+          }
+          audio.addEventListener("ended", onEnded, { once: true });
+          audio.addEventListener("error", onPlaybackError, { once: true });
+          if (signal) signal.addEventListener("abort", onAbort, { once: true });
+          audio.play().catch((error) => {
+            finish(
+              reject,
+              new XiaoQiCallMode.CallModeError(
+                error && error.name === "NotAllowedError"
+                  ? "浏览器阻止了自动播放，请重新点击开始通话"
+                  : `语音回复播放失败：${error.message || error}`,
+                "playback_error",
+                { cause: error },
+              ),
+            );
+          });
+        });
       }
 
       async function sendText(event) {
@@ -1259,7 +1444,7 @@
           });
           els.textInput.value = "";
           applySessionPayload(data);
-          playAudio(data.audio_url);
+          await playAudio(data.audio_url);
           setBadge(els.chatBadge, "完成", "ok");
           setChatStatus("回复已保存到当前会话。", "ok");
         } catch (error) {
@@ -1288,6 +1473,525 @@
           }
         }
         return { options: {}, mimeType: "", filename: "recording.webm" };
+      }
+
+      function callError(message, code, options = {}) {
+        return new XiaoQiCallMode.CallModeError(message, code, options);
+      }
+
+      function microphoneUnavailableMessage() {
+        if (!window.isSecureContext) {
+          return "当前页面不是安全上下文，浏览器不会开放麦克风。请通过 HTTPS 访问，或用 SSH 转发后打开 http://localhost:8787。";
+        }
+        return "当前浏览器不支持麦克风录音";
+      }
+
+      function primeCallMedia() {
+        const tasks = [];
+        if (!callAudio) {
+          callAudio = new Audio();
+          callAudio.playsInline = true;
+        }
+
+        callAudio.muted = true;
+        callAudio.src =
+          "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+        const playback = callAudio.play();
+        if (playback && typeof playback.then === "function") tasks.push(playback);
+
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          if (!callAudioContext || callAudioContext.state === "closed") {
+            callAudioContext = new AudioContext();
+          }
+          if (callAudioContext.state === "suspended") tasks.push(callAudioContext.resume());
+        }
+
+        return Promise.allSettled(tasks).then(() => {
+          callAudio.pause();
+          callAudio.removeAttribute("src");
+          callAudio.muted = false;
+        });
+      }
+
+      function getCallMicrophone(signal) {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          return Promise.reject(callError(microphoneUnavailableMessage(), "microphone_unavailable", { fatal: true }));
+        }
+
+        const mediaPromise = navigator.mediaDevices.getUserMedia({
+          audio: {
+            autoGainControl: true,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        });
+        return new Promise((resolve, reject) => {
+          let settled = false;
+          const cleanup = () => signal.removeEventListener("abort", onAbort);
+          const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            callback(value);
+          };
+          const onAbort = () => finish(reject, new DOMException("通话已结束", "AbortError"));
+
+          if (signal.aborted) {
+            onAbort();
+          } else {
+            signal.addEventListener("abort", onAbort, { once: true });
+          }
+
+          mediaPromise.then(
+            (mediaStream) => {
+              if (signal.aborted || settled) {
+                mediaStream.getTracks().forEach((track) => track.stop());
+                if (!settled) onAbort();
+                return;
+              }
+              finish(resolve, mediaStream);
+            },
+            (error) => {
+              const permissionDenied = error && ["NotAllowedError", "SecurityError"].includes(error.name);
+              finish(
+                reject,
+                callError(
+                  permissionDenied ? "麦克风权限被拒绝，请允许后重新开始通话" : `无法打开麦克风：${error.message || error}`,
+                  permissionDenied ? "permission_denied" : "microphone_error",
+                  { fatal: permissionDenied, cause: error },
+                ),
+              );
+            },
+          );
+        });
+      }
+
+      async function captureCallTurn({ signal }) {
+        if (!voiceAvailable()) {
+          throw callError("浏览器识别和后端转写都不可用", "speech_unavailable", { fatal: true });
+        }
+
+        const mediaStream = await getCallMicrophone(signal);
+        if (signal.aborted) {
+          mediaStream.getTracks().forEach((track) => track.stop());
+          throw new DOMException("通话已结束", "AbortError");
+        }
+
+        const turnStartedAt = Date.now();
+        const maxTurnMs = Math.max(5000, Math.min(300000, state.duration * 1000));
+        const noSpeechTimeoutMs = Math.min(maxTurnMs, 12000);
+        const silenceMs = 1100;
+        const calibrationMs = 200;
+        const recorderConfig = canUseBackendStt() ? getRecorderOptions() : null;
+
+        if (!SpeechRecognition && !recorderConfig) {
+          mediaStream.getTracks().forEach((track) => track.stop());
+          throw callError("当前浏览器无法录音，后端转写也未就绪", "speech_unavailable", { fatal: true });
+        }
+
+        if (callAudioContext && callAudioContext.state === "suspended") {
+          try {
+            await callAudioContext.resume();
+          } catch {
+            // SpeechRecognition can still provide endpointing when Web Audio is unavailable.
+          }
+        }
+
+        return new Promise((resolve, reject) => {
+          let localRecognition;
+          let localRecorder;
+          let analyser;
+          let sourceNode;
+          let vadData;
+          let vadTimer;
+          let endpointTimer;
+          let noSpeechTimer;
+          let maxTimer;
+          let forceFinalizeTimer;
+          let stopping = false;
+          let settled = false;
+          let recognitionFinished = !SpeechRecognition;
+          let recorderFinished = !recorderConfig;
+          let terminalError = null;
+          let transcript = "";
+          let heardSpeech = false;
+          let loudFrames = 0;
+          let noiseFloor = 0.006;
+          const localChunks = [];
+          let localMimeType = recorderConfig ? recorderConfig.mimeType : "audio/webm";
+          const localFilename = recorderConfig ? recorderConfig.filename : "recording.webm";
+
+          const cleanup = () => {
+            clearTimeout(vadTimer);
+            clearTimeout(endpointTimer);
+            clearTimeout(noSpeechTimer);
+            clearTimeout(maxTimer);
+            clearTimeout(forceFinalizeTimer);
+            signal.removeEventListener("abort", onAbort);
+            if (sourceNode) sourceNode.disconnect();
+            if (analyser) analyser.disconnect();
+            mediaStream.getTracks().forEach((track) => track.stop());
+          };
+
+          const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            callback(value);
+          };
+
+          const finalize = (force = false) => {
+            if (!stopping || settled) return;
+            if (!force && (!recognitionFinished || !recorderFinished)) return;
+
+            if (signal.aborted) {
+              finish(reject, new DOMException("通话已结束", "AbortError"));
+              return;
+            }
+            if (terminalError) {
+              finish(reject, terminalError);
+              return;
+            }
+
+            const duration = Math.max(1, Math.round((Date.now() - turnStartedAt) / 1000));
+            const cleanedTranscript = transcript.trim();
+            if (cleanedTranscript) {
+              finish(resolve, { duration, kind: "transcript", transcript: cleanedTranscript });
+              return;
+            }
+            if (heardSpeech && localChunks.length && recorderConfig) {
+              finish(resolve, {
+                blob: new Blob(localChunks, { type: localMimeType || "audio/webm" }),
+                duration,
+                filename: localFilename,
+                kind: "audio",
+              });
+              return;
+            }
+            finish(reject, callError("没有听到清晰语音", "no_speech"));
+          };
+
+          const requestStop = (reason, error = null) => {
+            if (stopping) {
+              if (error && !terminalError) terminalError = error;
+              return;
+            }
+            stopping = true;
+            terminalError = error;
+            clearTimeout(vadTimer);
+            clearTimeout(endpointTimer);
+            clearTimeout(noSpeechTimer);
+            clearTimeout(maxTimer);
+            els.bar.style.width = reason === "silence" || reason === "max_duration" ? "100%" : els.bar.style.width;
+
+            try {
+              if (localRecognition) localRecognition.stop();
+              else recognitionFinished = true;
+            } catch {
+              recognitionFinished = true;
+            }
+            try {
+              if (localRecorder && localRecorder.state !== "inactive") localRecorder.stop();
+              else recorderFinished = true;
+            } catch {
+              recorderFinished = true;
+            }
+            mediaStream.getTracks().forEach((track) => track.stop());
+            forceFinalizeTimer = setTimeout(() => finalize(true), 900);
+            finalize();
+          };
+
+          const markSpeech = () => {
+            if (stopping) return;
+            heardSpeech = true;
+            clearTimeout(endpointTimer);
+            endpointTimer = setTimeout(() => requestStop("silence"), silenceMs);
+          };
+
+          const onAbort = () =>
+            requestStop("aborted", new DOMException("通话已结束", "AbortError"));
+          signal.addEventListener("abort", onAbort, { once: true });
+
+          if (SpeechRecognition) {
+            try {
+              localRecognition = new SpeechRecognition();
+              localRecognition.lang = "zh-CN";
+              localRecognition.continuous = true;
+              localRecognition.interimResults = true;
+              localRecognition.addEventListener("result", (event) => {
+                let text = "";
+                for (let index = 0; index < event.results.length; index += 1) {
+                  text += event.results[index][0].transcript;
+                }
+                transcript = text.trim();
+                els.transcriptPreview.textContent = transcript || "正在识别。";
+                if (transcript) markSpeech();
+              });
+              localRecognition.addEventListener("speechstart", markSpeech);
+              localRecognition.addEventListener("speechend", () => {
+                if (heardSpeech) markSpeech();
+              });
+              localRecognition.addEventListener("end", () => {
+                recognitionFinished = true;
+                if (!stopping && (transcript || !localRecorder)) requestStop("recognition_end");
+                finalize();
+              });
+              localRecognition.addEventListener("error", (event) => {
+                recognitionFinished = true;
+                if (stopping || event.error === "aborted") {
+                  finalize();
+                  return;
+                }
+                if (["not-allowed", "service-not-allowed", "audio-capture"].includes(event.error)) {
+                  requestStop(
+                    "recognition_error",
+                    callError("浏览器语音识别权限不可用", "permission_denied", { fatal: true }),
+                  );
+                  return;
+                }
+                if (!localRecorder && event.error !== "no-speech") {
+                  requestStop(
+                    "recognition_error",
+                    callError(`浏览器语音识别失败：${event.error}`, "recognition_error"),
+                  );
+                }
+              });
+              localRecognition.start();
+              recognitionFinished = false;
+            } catch (error) {
+              recognitionFinished = true;
+              localRecognition = undefined;
+              if (!recorderConfig) {
+                requestStop(
+                  "recognition_error",
+                  callError(`无法启动浏览器语音识别：${error.message || error}`, "recognition_error"),
+                );
+              }
+            }
+          }
+
+          if (recorderConfig && !stopping) {
+            try {
+              localRecorder = new MediaRecorder(mediaStream, recorderConfig.options);
+              localMimeType = localRecorder.mimeType || recorderConfig.mimeType || "audio/webm";
+              localRecorder.addEventListener("dataavailable", (event) => {
+                if (event.data.size > 0) localChunks.push(event.data);
+              });
+              localRecorder.addEventListener("stop", () => {
+                recorderFinished = true;
+                finalize();
+              });
+              localRecorder.addEventListener("error", () => {
+                recorderFinished = true;
+                requestStop("recording_error", callError("浏览器录音失败", "recording_error"));
+              });
+              localRecorder.start(250);
+              recorderFinished = false;
+            } catch (error) {
+              recorderFinished = true;
+              localRecorder = undefined;
+              if (!localRecognition) {
+                requestStop(
+                  "recording_error",
+                  callError(`无法启动浏览器录音：${error.message || error}`, "recording_error"),
+                );
+              }
+            }
+          }
+
+          if (callAudioContext && callAudioContext.state !== "closed" && !stopping) {
+            try {
+              sourceNode = callAudioContext.createMediaStreamSource(mediaStream);
+              analyser = callAudioContext.createAnalyser();
+              analyser.fftSize = 1024;
+              analyser.smoothingTimeConstant = 0.2;
+              sourceNode.connect(analyser);
+              vadData = new Uint8Array(analyser.fftSize);
+
+              const sampleVoiceActivity = () => {
+                if (stopping) return;
+                analyser.getByteTimeDomainData(vadData);
+                let sumSquares = 0;
+                for (const value of vadData) {
+                  const normalized = (value - 128) / 128;
+                  sumSquares += normalized * normalized;
+                }
+                const rms = Math.sqrt(sumSquares / vadData.length);
+                const elapsed = Date.now() - turnStartedAt;
+                if (!heardSpeech && elapsed < calibrationMs && rms < 0.03) {
+                  noiseFloor = noiseFloor * 0.82 + rms * 0.18;
+                }
+                const threshold = Math.max(0.015, noiseFloor * 2.8);
+                if (elapsed >= calibrationMs && rms >= threshold) {
+                  loudFrames += 1;
+                  if (loudFrames >= 3) markSpeech();
+                } else {
+                  loudFrames = 0;
+                }
+                els.bar.style.width = `${Math.min(100, Math.max(2, rms * 850))}%`;
+                vadTimer = setTimeout(sampleVoiceActivity, 40);
+              };
+              sampleVoiceActivity();
+            } catch {
+              sourceNode = undefined;
+              analyser = undefined;
+            }
+          }
+
+          noSpeechTimer = setTimeout(() => {
+            if (!heardSpeech && !transcript) requestStop("no_speech");
+          }, noSpeechTimeoutMs);
+          maxTimer = setTimeout(() => requestStop("max_duration"), maxTurnMs);
+        });
+      }
+
+      async function processCallTurn(turn, { signal }) {
+        try {
+          let data;
+          if (turn.kind === "transcript") {
+            data = await requestJSON("/api/respond", {
+              method: "POST",
+              body: {
+                duration: turn.duration,
+                transcript: turn.transcript,
+                session_id: state.current.id,
+              },
+              signal,
+            });
+          } else {
+            const form = new FormData();
+            form.append("duration", String(turn.duration));
+            form.append("session_id", state.current.id);
+            form.append("audio", turn.blob, turn.filename);
+            data = await requestJSON("/api/converse", { method: "POST", body: form, signal });
+          }
+
+          applySessionPayload(data);
+          setCallUiLock(true);
+          els.transcriptPreview.textContent = data.transcript || turn.transcript || "";
+          return data;
+        } catch (error) {
+          if (/no speech|没有.*语音|未识别.*语音/i.test(error.message || "")) {
+            throw callError("没有识别到清晰语音", "no_speech", { cause: error });
+          }
+          throw error;
+        }
+      }
+
+      async function playCallReply(data, { signal }) {
+        if (!data || !data.audio_url) {
+          throw callError("小七没有返回可播放的语音", "reply_audio_missing");
+        }
+        if (!callAudio) callAudio = new Audio();
+        await playAudio(data.audio_url, { audioElement: callAudio, signal });
+      }
+
+      function setCallUiLock(locked) {
+        els.textInput.disabled = locked;
+        els.sendText.disabled = locked;
+        els.newSession.disabled = locked;
+        els.sessionTitle.disabled = locked;
+        els.saveTitle.disabled = locked || !state.current;
+        els.deleteSession.disabled = locked || !state.current;
+        els.sessionList.querySelectorAll("button").forEach((button) => {
+          button.disabled = locked;
+        });
+      }
+
+      function renderCallState(event) {
+        const current = event.state;
+        els.callIndicator.className = `call-indicator ${current}`;
+        if (current === XiaoQiCallMode.CALL_STATES.LISTENING) {
+          els.callState.textContent = "正在听，请直接说话";
+          setBadge(els.voiceBadge, "通话中 · 正在听", "ok");
+          setVoiceStatus("正在听你说话；说完保持安静约 1.1 秒即可自动发送。");
+          els.bar.style.width = "0%";
+        } else if (current === XiaoQiCallMode.CALL_STATES.PROCESSING) {
+          els.callState.textContent = "已收句，小七正在思考";
+          setBadge(els.voiceBadge, "通话中 · 思考");
+          setVoiceStatus("麦克风已关闭，正在转写并生成回复。");
+          els.bar.style.width = "100%";
+        } else if (current === XiaoQiCallMode.CALL_STATES.SPEAKING) {
+          els.callState.textContent = "小七正在说话";
+          setBadge(els.voiceBadge, "通话中 · 小七说话");
+          setVoiceStatus("回答播放结束后会自动重新打开麦克风。", "ok");
+        } else if (current === XiaoQiCallMode.CALL_STATES.RECOVERING) {
+          if (event.reason === "no_speech") {
+            els.callState.textContent = "没有听清，正在继续听";
+            setBadge(els.voiceBadge, "通话中 · 重听");
+            setVoiceStatus("这轮没有听到清晰语音，正在自动重新收音。");
+          } else {
+            els.callState.textContent = `连接波动，正在重试（${event.consecutiveErrors}/3）`;
+            setBadge(els.voiceBadge, "通话中 · 重试");
+            setVoiceStatus(event.error ? event.error.message : "正在恢复通话。", "err");
+          }
+        } else if (current === XiaoQiCallMode.CALL_STATES.ENDED) {
+          state.callActive = false;
+          const failed = ["fatal_error", "error_limit", "loop_finished"].includes(event.reason);
+          els.callState.textContent = failed ? "通话因错误结束" : "通话已结束";
+          setBadge(els.voiceBadge, failed ? "通话异常结束" : "已挂断", failed ? "err" : "");
+          if (event.error) setVoiceStatus(event.error.message, "err");
+          else setVoiceStatus("通话已结束，可再次点击开始通话。");
+          if (["正在等待语音。", "正在识别。", "正在听，请直接说话"].includes(els.transcriptPreview.textContent)) {
+            els.transcriptPreview.textContent = "通话已结束。";
+          }
+          els.bar.style.width = "0%";
+          setIdleVoiceControls();
+        }
+      }
+
+      function finishCallUi() {
+        state.callActive = false;
+        state.busy = false;
+        setCallUiLock(false);
+        setIdleVoiceControls();
+        if (callAudio) callAudio.pause();
+        if (callAudioContext && callAudioContext.state === "running") {
+          callAudioContext.suspend().catch(() => {});
+        }
+      }
+
+      async function startCall() {
+        if (state.busy || state.callActive) return;
+        if (!voiceAvailable()) throw callError("语音识别当前不可用", "speech_unavailable", { fatal: true });
+
+        state.busy = true;
+        els.startCall.disabled = true;
+        els.callState.textContent = "正在接通";
+        setBadge(els.voiceBadge, "接通中");
+        const mediaUnlock = primeCallMedia();
+
+        try {
+          await ensureSession();
+          await mediaUnlock;
+          state.playTarget = "browser";
+          localStorage.setItem("hermes.playTarget", "browser");
+          renderPlayTarget();
+          setChatStatus("电话模式使用当前浏览器的麦克风和扬声器。", "ok");
+          state.callActive = true;
+          setCallUiLock(true);
+          setIdleVoiceControls();
+
+          callController
+            .start()
+            .catch((error) => {
+              setBadge(els.voiceBadge, "通话失败", "err");
+              setVoiceStatus(error.message || String(error), "err");
+            })
+            .finally(finishCallUi);
+        } catch (error) {
+          finishCallUi();
+          throw error;
+        }
+      }
+
+      function hangUpCall() {
+        if (!callController || !callController.isActive()) return;
+        els.hangUp.disabled = true;
+        els.callState.textContent = "正在挂断";
+        callController.hangUp("user");
       }
 
       function resetRecordingControls() {
@@ -1474,7 +2178,7 @@
             },
           });
           applySessionPayload(data);
-          playAudio(data.audio_url);
+          await playAudio(data.audio_url);
           els.transcriptPreview.textContent = data.transcript || browserTranscript;
           setBadge(els.voiceBadge, "完成", "ok");
           setVoiceStatus("语音回复已保存到当前会话。", "ok");
@@ -1497,7 +2201,7 @@
         try {
           const data = await requestJSON("/api/converse", { method: "POST", body: form });
           applySessionPayload(data);
-          playAudio(data.audio_url);
+          await playAudio(data.audio_url);
           els.transcriptPreview.textContent = data.transcript || "";
           setBadge(els.voiceBadge, "完成", "ok");
           setVoiceStatus("语音回复已保存到当前会话。", "ok");
@@ -1544,7 +2248,10 @@
         if (data.status === "complete") {
           const result = data.result || {};
           applySessionPayload(result);
-          playAudio(result.audio_url);
+          playAudio(result.audio_url).catch((error) => {
+            setBadge(els.voiceBadge, "播放失败", "err");
+            setVoiceStatus(error.message, "err");
+          });
           els.bar.style.width = "100%";
           els.transcriptPreview.textContent = result.transcript || "";
           setBadge(els.voiceBadge, "完成", "ok");
@@ -1670,6 +2377,16 @@
         }
       }
 
+      callController = XiaoQiCallMode.createCallController({
+        captureTurn: captureCallTurn,
+        maxConsecutiveErrors: 3,
+        noSpeechDelayMs: 300,
+        onStateChange: renderCallState,
+        playReply: playCallReply,
+        processTurn: processCallTurn,
+        retryDelayMs: 900,
+      });
+
       async function init() {
         setDuration(state.duration);
         els.speakReply.checked = localStorage.getItem("hermes.speakReply") === "true";
@@ -1700,6 +2417,16 @@
       els.refreshHealth.addEventListener("click", loadHealth);
       els.playBrowser.addEventListener("click", () => setPlayTarget("browser"));
       els.playPi.addEventListener("click", () => setPlayTarget("pi"));
+      els.startCall.addEventListener("click", () => {
+        startCall().catch((error) => {
+          els.callIndicator.className = "call-indicator ended";
+          els.callState.textContent = "无法开始通话";
+          setBadge(els.voiceBadge, "通话失败", "err");
+          setVoiceStatus(error.message, "err");
+          finishCallUi();
+        });
+      });
+      els.hangUp.addEventListener("click", hangUpCall);
       els.record.addEventListener("click", () => {
         startRecording().catch((error) => {
           setBadge(els.voiceBadge, "失败", "err");
