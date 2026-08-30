@@ -834,6 +834,1001 @@
         }
       }
     </style>
+    <style id="xiaoqi-refined-ui">
+      :root {
+        color-scheme: dark;
+        --bg: #080a0f;
+        --surface: rgba(17, 20, 28, 0.88);
+        --surface-solid: #11141c;
+        --surface-soft: #151923;
+        --surface-raised: #1a1f2b;
+        --ink: #f3f5fa;
+        --muted: #8d95a5;
+        --muted-strong: #b6bdc9;
+        --line: rgba(255, 255, 255, 0.085);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --accent: #91a5ff;
+        --accent-dark: #7288ed;
+        --accent-soft: rgba(145, 165, 255, 0.13);
+        --blue: #91a5ff;
+        --warn: #e9b968;
+        --danger: #ff827c;
+        --danger-soft: rgba(255, 130, 124, 0.12);
+        --ok: #5dd6ae;
+        --shadow: 0 24px 70px rgba(0, 0, 0, 0.26);
+      }
+
+      html {
+        background: var(--bg);
+      }
+
+      body {
+        min-height: 100svh;
+        background:
+          radial-gradient(circle at 51% -10%, rgba(117, 139, 255, 0.17), transparent 35rem),
+          radial-gradient(circle at 100% 80%, rgba(71, 190, 161, 0.06), transparent 28rem),
+          var(--bg);
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+        letter-spacing: -0.012em;
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background-image: linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px);
+        background-size: 100% 52px;
+        content: "";
+        mask-image: linear-gradient(to bottom, black, transparent 70%);
+        pointer-events: none;
+      }
+
+      ::selection {
+        background: rgba(145, 165, 255, 0.28);
+        color: #fff;
+      }
+
+      button,
+      input,
+      textarea {
+        letter-spacing: inherit;
+      }
+
+      button {
+        min-height: 42px;
+        border-radius: 13px;
+        padding: 0 15px;
+        font-weight: 660;
+        transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+      }
+
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+      }
+
+      button:active:not(:disabled) {
+        transform: translateY(0);
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+
+      input,
+      textarea {
+        border-color: var(--line);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.045);
+        color: var(--ink);
+      }
+
+      input::placeholder,
+      textarea::placeholder {
+        color: #697182;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: rgba(145, 165, 255, 0.6);
+        box-shadow: 0 0 0 4px rgba(145, 165, 255, 0.1);
+      }
+
+      textarea {
+        min-height: 72px;
+        max-height: 190px;
+        padding: 15px 16px;
+      }
+
+      input {
+        height: 42px;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+
+      .eyebrow,
+      .section-kicker {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 760;
+        letter-spacing: 0.16em;
+        line-height: 1.2;
+        text-transform: uppercase;
+      }
+
+      .topbar {
+        position: sticky;
+        background: rgba(8, 10, 15, 0.76);
+        border-bottom-color: var(--line);
+        backdrop-filter: blur(24px) saturate(130%);
+      }
+
+      .topbar-inner {
+        width: min(1540px, calc(100vw - 36px));
+        min-height: 76px;
+        gap: 22px;
+      }
+
+      .brand {
+        gap: 13px;
+      }
+
+      .brand-mark {
+        position: relative;
+        width: 38px;
+        height: 38px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 13px;
+        background: linear-gradient(145deg, rgba(145, 165, 255, 0.23), rgba(145, 165, 255, 0.04));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 8px 24px rgba(0, 0, 0, 0.18);
+        color: #dfe5ff;
+        font-size: 15px;
+        font-weight: 760;
+      }
+
+      .brand-mark::after {
+        position: absolute;
+        right: -2px;
+        bottom: -2px;
+        width: 8px;
+        height: 8px;
+        border: 2px solid var(--bg);
+        border-radius: 50%;
+        background: var(--ok);
+        content: "";
+      }
+
+      h1 {
+        margin-top: 2px;
+        font-size: 17px;
+        font-weight: 680;
+        letter-spacing: -0.02em;
+      }
+
+      .brand p {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .top-actions {
+        gap: 9px;
+      }
+
+      .top-actions .playback-choice {
+        width: auto;
+        display: flex;
+        gap: 3px;
+        margin: 0;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.035);
+        padding: 3px;
+      }
+
+      .playback-choice button {
+        min-height: 34px;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        padding: 0 12px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .playback-choice button.active {
+        border-color: transparent;
+        background: rgba(255, 255, 255, 0.09);
+        color: var(--ink);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+
+      .badge {
+        min-height: 32px;
+        gap: 7px;
+        border-color: var(--line);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--muted-strong);
+        font-size: 11px;
+        font-weight: 690;
+      }
+
+      .badge::before {
+        width: 6px;
+        height: 6px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: #687080;
+        content: "";
+      }
+
+      .badge.ok {
+        border-color: rgba(93, 214, 174, 0.22);
+        background: rgba(93, 214, 174, 0.07);
+        color: #8be4c6;
+      }
+
+      .badge.ok::before {
+        background: var(--ok);
+        box-shadow: 0 0 10px rgba(93, 214, 174, 0.55);
+      }
+
+      .badge.err {
+        border-color: rgba(255, 130, 124, 0.24);
+        background: rgba(255, 130, 124, 0.08);
+        color: #ffaaa5;
+      }
+
+      .badge.err::before {
+        background: var(--danger);
+      }
+
+      .icon-button {
+        width: 38px;
+        min-height: 38px;
+        border-color: var(--line);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.035);
+        color: var(--muted-strong);
+        font-size: 17px;
+      }
+
+      .shell {
+        width: min(1540px, calc(100vw - 36px));
+        margin: 0 auto;
+        padding: 18px 0 34px;
+        display: grid;
+        grid-template-columns: 238px minmax(440px, 1.05fr) minmax(370px, 0.9fr);
+        grid-template-areas: "sessions voice chat";
+        gap: 14px;
+        align-items: start;
+      }
+
+      .panel {
+        border-color: var(--line);
+        border-radius: 22px;
+        background: var(--surface);
+        box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+        backdrop-filter: blur(18px);
+      }
+
+      .panel-head {
+        min-height: 72px;
+        border-bottom-color: var(--line);
+        padding: 16px 18px;
+      }
+
+      .panel-head h2,
+      .panel-head h3 {
+        margin-top: 5px;
+        font-size: 15px;
+        font-weight: 660;
+      }
+
+      .panel-head .muted {
+        margin-top: 4px;
+        font-size: 11px;
+      }
+
+      .panel-body {
+        padding: 18px;
+      }
+
+      .sidebar {
+        grid-area: sessions;
+        top: 94px;
+        max-height: calc(100svh - 112px);
+        overflow: hidden;
+      }
+
+      .sidebar .panel-head .primary {
+        width: 36px;
+        min-height: 36px;
+        padding: 0;
+        border-radius: 12px;
+        font-size: 19px;
+        line-height: 1;
+      }
+
+      .session-list {
+        max-height: calc(100svh - 292px);
+        padding: 8px;
+      }
+
+      .session-empty,
+      .empty-state {
+        color: var(--muted);
+      }
+
+      .session-item {
+        min-height: 68px;
+        margin-bottom: 4px;
+        border-radius: 14px;
+        padding: 11px 12px;
+        color: var(--ink);
+      }
+
+      .session-item:hover {
+        border-color: var(--line);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .session-item.active {
+        border-color: rgba(145, 165, 255, 0.2);
+        background: var(--accent-soft);
+      }
+
+      .session-title {
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .session-meta,
+      .session-last {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .session-tools {
+        border-top-color: var(--line);
+        padding: 0;
+      }
+
+      .session-tools details {
+        padding: 0 14px 14px;
+      }
+
+      .session-tools summary,
+      .advanced-controls summary,
+      .system-summary {
+        display: flex;
+        min-height: 48px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--muted-strong);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 640;
+        list-style: none;
+        user-select: none;
+      }
+
+      .session-tools summary::-webkit-details-marker,
+      .advanced-controls summary::-webkit-details-marker,
+      .system-summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .disclosure {
+        color: var(--muted);
+        font-size: 16px;
+        transition: transform 160ms ease;
+      }
+
+      details[open] > summary .disclosure {
+        transform: rotate(180deg);
+      }
+
+      .rename-row {
+        margin-top: 2px;
+      }
+
+      .danger-outline {
+        border-color: rgba(255, 130, 124, 0.2);
+        background: transparent;
+        color: #ffaaa5;
+      }
+
+      .primary {
+        background: linear-gradient(145deg, #9aabff, #7288ed);
+        color: #0b1024;
+        box-shadow: 0 8px 20px rgba(94, 117, 230, 0.18);
+      }
+
+      .primary:hover:not(:disabled) {
+        background: linear-gradient(145deg, #aab8ff, #8397f5);
+        box-shadow: 0 10px 26px rgba(94, 117, 230, 0.26);
+      }
+
+      .secondary {
+        border-color: var(--line);
+        background: rgba(255, 255, 255, 0.035);
+        color: var(--muted-strong);
+      }
+
+      .secondary:hover:not(:disabled) {
+        border-color: var(--line-strong);
+        background: rgba(255, 255, 255, 0.065);
+        color: var(--ink);
+      }
+
+      .danger {
+        border: 1px solid rgba(255, 130, 124, 0.15);
+        background: var(--danger-soft);
+        color: #ffaaa5;
+      }
+
+      .side-stack {
+        grid-area: voice;
+        gap: 14px;
+      }
+
+      .voice-panel {
+        overflow: hidden;
+      }
+
+      .voice-panel > .panel-body {
+        padding: 0;
+      }
+
+      .call-mode {
+        min-height: 412px;
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+        background:
+          radial-gradient(circle at 50% 30%, rgba(145, 165, 255, 0.13), transparent 14rem),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent);
+        padding: 34px 28px 28px;
+        text-align: center;
+      }
+
+      .call-mode-head {
+        display: grid;
+        justify-items: center;
+        gap: 22px;
+      }
+
+      .call-visual {
+        position: relative;
+        display: grid;
+        width: 120px;
+        height: 120px;
+        place-items: center;
+      }
+
+      .call-visual::before,
+      .call-visual::after {
+        position: absolute;
+        border: 1px solid rgba(145, 165, 255, 0.12);
+        border-radius: 50%;
+        content: "";
+      }
+
+      .call-visual::before {
+        inset: 2px;
+      }
+
+      .call-visual::after {
+        inset: 15px;
+        border-color: rgba(145, 165, 255, 0.18);
+      }
+
+      .call-indicator {
+        position: relative;
+        z-index: 1;
+        width: 66px;
+        height: 66px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background:
+          radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.28), transparent 23%),
+          linear-gradient(145deg, #727b91, #3f4657);
+        box-shadow: inset 0 1px 8px rgba(255, 255, 255, 0.16), 0 16px 44px rgba(0, 0, 0, 0.3);
+      }
+
+      .call-indicator.listening {
+        background:
+          radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.38), transparent 23%),
+          linear-gradient(145deg, #73e2bd, #329c7b);
+        animation: refined-listen 1.8s ease-in-out infinite;
+      }
+
+      .call-indicator.processing,
+      .call-indicator.recovering {
+        background:
+          radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.34), transparent 23%),
+          linear-gradient(145deg, #f0c778, #b77c39);
+        animation: refined-think 1.5s ease-in-out infinite;
+      }
+
+      .call-indicator.speaking {
+        background:
+          radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.4), transparent 23%),
+          linear-gradient(145deg, #aebaff, #6178df);
+        animation: refined-speak 0.95s ease-in-out infinite;
+      }
+
+      .call-indicator.ended {
+        background:
+          radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.28), transparent 23%),
+          linear-gradient(145deg, #ff9a95, #b64e4a);
+      }
+
+      @keyframes refined-listen {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(93, 214, 174, 0.16), 0 16px 44px rgba(0, 0, 0, 0.3); }
+        50% { box-shadow: 0 0 0 20px rgba(93, 214, 174, 0), 0 18px 50px rgba(52, 160, 126, 0.28); }
+      }
+
+      @keyframes refined-think {
+        0%, 100% { transform: scale(0.94); }
+        50% { transform: scale(1.03); }
+      }
+
+      @keyframes refined-speak {
+        0%, 100% { transform: scale(0.96); box-shadow: 0 0 0 0 rgba(145, 165, 255, 0.16); }
+        50% { transform: scale(1.06); box-shadow: 0 0 0 15px rgba(145, 165, 255, 0); }
+      }
+
+      .call-copy {
+        max-width: 430px;
+      }
+
+      .call-title {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 760;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .call-state {
+        margin-top: 8px;
+        color: var(--ink);
+        font-size: clamp(21px, 2.4vw, 28px);
+        font-weight: 620;
+        letter-spacing: -0.035em;
+        line-height: 1.24;
+      }
+
+      .call-note {
+        max-width: 390px;
+        margin: 10px auto 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .call-actions {
+        width: min(100%, 390px);
+        margin: 26px auto 0;
+        gap: 10px;
+      }
+
+      .call-actions button {
+        min-height: 50px;
+        border-radius: 16px;
+      }
+
+      .call-actions .primary {
+        font-size: 14px;
+      }
+
+      .transcript-shell {
+        border-top: 1px solid var(--line);
+        padding: 18px 20px 20px;
+      }
+
+      .transcript-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .transcript-label span:last-child {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .transcript-preview {
+        min-height: 84px;
+        margin: 0;
+        border-color: transparent;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.035);
+        padding: 14px 15px;
+        color: var(--muted-strong);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .voice-status {
+        min-height: 18px;
+        margin: 10px 1px 0;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .advanced-controls {
+        border-top: 1px solid var(--line);
+        padding: 0 20px;
+      }
+
+      .advanced-controls summary {
+        min-height: 54px;
+      }
+
+      .advanced-body {
+        padding: 2px 0 20px;
+      }
+
+      .advanced-body label {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .duration-row input[type="range"] {
+        background: transparent;
+        accent-color: var(--accent);
+      }
+
+      .quick-row {
+        gap: 6px;
+      }
+
+      .quick-row button {
+        min-height: 36px;
+        font-size: 11px;
+      }
+
+      .meter {
+        height: 5px;
+        background: rgba(255, 255, 255, 0.07);
+      }
+
+      .bar {
+        background: linear-gradient(90deg, var(--accent-dark), var(--accent));
+      }
+
+      .button-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .button-row button {
+        min-width: 0;
+        padding: 0 10px;
+        font-size: 11px;
+        white-space: normal;
+      }
+
+      .system-panel {
+        overflow: hidden;
+      }
+
+      .system-summary {
+        min-height: 62px;
+        padding: 0 18px;
+      }
+
+      .system-summary-copy h3 {
+        margin-top: 4px;
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 640;
+      }
+
+      .system-panel .panel-body {
+        border-top: 1px solid var(--line);
+      }
+
+      .status-row {
+        grid-template-columns: 92px minmax(0, 1fr);
+        border-bottom-color: var(--line);
+      }
+
+      .status-name,
+      .status-value {
+        font-size: 12px;
+      }
+
+      .status-name {
+        color: var(--muted);
+      }
+
+      .status-value {
+        color: var(--muted-strong);
+      }
+
+      .chat-panel {
+        grid-area: chat;
+        min-height: calc(100svh - 112px);
+        max-height: calc(100svh - 112px);
+        grid-template-rows: auto minmax(300px, 1fr) auto;
+      }
+
+      .chat-head {
+        min-height: 72px;
+        border-bottom-color: var(--line);
+        padding: 15px 18px;
+      }
+
+      .chat-title h2 {
+        font-size: 15px;
+        font-weight: 660;
+      }
+
+      .chat-title p {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .messages {
+        padding: 18px;
+        background: transparent;
+      }
+
+      .message {
+        width: min(88%, 700px);
+        margin-bottom: 11px;
+        border-color: transparent;
+        border-radius: 17px;
+        background: rgba(255, 255, 255, 0.045);
+        padding: 12px 14px;
+      }
+
+      .message.user {
+        border-color: transparent;
+        background: rgba(145, 165, 255, 0.14);
+      }
+
+      .message.assistant {
+        border-color: transparent;
+        background: rgba(255, 255, 255, 0.045);
+      }
+
+      .message-meta {
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 640;
+      }
+
+      .message-body {
+        color: #dfe3eb;
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .composer {
+        border-top-color: var(--line);
+        padding: 13px;
+        background: rgba(8, 10, 15, 0.25);
+      }
+
+      .composer textarea {
+        min-height: 68px;
+        resize: none;
+      }
+
+      .composer-actions {
+        margin-top: 8px;
+      }
+
+      .toggle {
+        margin: 0;
+        color: var(--muted-strong);
+        font-size: 11px;
+      }
+
+      .toggle input {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--accent);
+      }
+
+      .chat-status {
+        flex: 1 1 140px;
+        color: var(--muted);
+        font-size: 10px;
+        text-align: center;
+      }
+
+      #sendText {
+        min-width: 74px;
+      }
+
+      @media (max-width: 1260px) {
+        .shell {
+          grid-template-columns: 210px minmax(400px, 1fr) minmax(340px, 0.86fr);
+        }
+      }
+
+      @media (max-width: 1080px) {
+        .shell {
+          grid-template-columns: minmax(400px, 1.08fr) minmax(350px, 0.92fr);
+          grid-template-areas:
+            "voice chat"
+            "sessions chat";
+        }
+
+        .sidebar {
+          position: static;
+          max-height: none;
+        }
+
+        .session-list {
+          max-height: 260px;
+        }
+
+        .chat-panel {
+          position: sticky;
+          top: 94px;
+        }
+      }
+
+      @media (max-width: 820px) {
+        .topbar-inner {
+          width: min(100% - 24px, 720px);
+          padding: 11px 0;
+          flex-direction: row;
+          align-items: center;
+        }
+
+        .brand p,
+        .brand .eyebrow {
+          display: none;
+        }
+
+        .top-actions {
+          width: auto;
+          margin-left: auto;
+        }
+
+        .top-actions .playback-choice {
+          width: auto;
+          order: initial;
+        }
+
+        .shell {
+          width: min(100% - 24px, 720px);
+          grid-template-columns: 1fr;
+          grid-template-areas:
+            "voice"
+            "chat"
+            "sessions";
+          padding-top: 12px;
+        }
+
+        .chat-panel {
+          position: static;
+          min-height: 620px;
+          max-height: 760px;
+        }
+
+        .call-mode {
+          min-height: 390px;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .topbar-inner,
+        .shell {
+          width: calc(100% - 20px);
+        }
+
+        .brand {
+          gap: 9px;
+        }
+
+        .brand-mark {
+          display: grid;
+          width: 34px;
+          height: 34px;
+          border-radius: 11px;
+        }
+
+        h1 {
+          font-size: 15px;
+        }
+
+        .top-actions {
+          gap: 6px;
+        }
+
+        .top-actions .playback-choice button {
+          padding: 0 9px;
+          font-size: 11px;
+        }
+
+        #connectionBadge {
+          display: none;
+        }
+
+        .panel {
+          border-radius: 20px;
+        }
+
+        .call-mode {
+          min-height: 370px;
+          padding: 28px 16px 24px;
+        }
+
+        .call-visual {
+          width: 106px;
+          height: 106px;
+        }
+
+        .call-state {
+          font-size: 22px;
+        }
+
+        .call-actions {
+          margin-top: 22px;
+        }
+
+        .call-actions button {
+          min-height: 48px;
+        }
+
+        .composer-actions {
+          align-items: center;
+          flex-direction: row;
+        }
+
+        .composer-controls {
+          width: auto;
+          flex-direction: row;
+        }
+
+        .chat-status {
+          display: none;
+        }
+
+        .button-row {
+          grid-template-columns: 1fr;
+        }
+
+        .button-row button {
+          width: 100%;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 1ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 1ms !important;
+        }
+      }
+    </style>
   </head>
   <body>
     <header class="topbar">
@@ -841,16 +1836,17 @@
         <div class="brand">
           <div class="brand-mark">七</div>
           <div>
+            <div class="eyebrow">Hermes Voice</div>
             <h1>生活助手小七</h1>
-            <p>学习助手、语音输入、回复朗读和会话管理</p>
+            <p>自然地说，我会一直听着</p>
           </div>
         </div>
         <div class="top-actions">
           <div class="playback-choice" role="group" aria-label="语音回复播放位置">
-            <button id="playBrowser" class="secondary" type="button" aria-pressed="true">浏览器播放语音回复</button>
-            <button id="playPi" class="secondary" type="button" aria-pressed="false">智能助手回复</button>
+            <button id="playBrowser" class="secondary" type="button" aria-label="浏览器播放语音回复" aria-pressed="true">此设备</button>
+            <button id="playPi" class="secondary" type="button" aria-label="智能助手回复" aria-pressed="false">树莓派</button>
           </div>
-          <button id="refreshHealth" class="icon-button" type="button" title="刷新状态">↻</button>
+          <button id="refreshHealth" class="icon-button" type="button" aria-label="刷新连接状态" title="刷新状态">↻</button>
           <span id="connectionBadge" class="badge">连接中</span>
         </div>
       </div>
@@ -860,25 +1856,33 @@
       <aside class="panel sidebar" aria-label="会话管理">
         <div class="panel-head">
           <div>
+            <div class="section-kicker">Conversations</div>
             <h2>会话</h2>
             <p id="sessionCount" class="muted">加载中</p>
           </div>
-          <button id="newSession" class="primary" type="button">新建</button>
+          <button id="newSession" class="primary" type="button" aria-label="新建会话" title="新建会话">＋</button>
         </div>
         <div id="sessionList" class="session-list"></div>
         <div class="session-tools">
-          <label for="sessionTitle">当前标题</label>
-          <div class="rename-row">
-            <input id="sessionTitle" type="text" maxlength="32" placeholder="新会话" />
-            <button id="saveTitle" class="secondary" type="button">保存</button>
-          </div>
-          <button id="deleteSession" class="danger-outline" type="button">删除当前会话</button>
+          <details>
+            <summary>
+              <span>会话设置</span>
+              <span class="disclosure" aria-hidden="true">⌄</span>
+            </summary>
+            <label for="sessionTitle">当前标题</label>
+            <div class="rename-row">
+              <input id="sessionTitle" type="text" maxlength="32" placeholder="新会话" />
+              <button id="saveTitle" class="secondary" type="button">保存</button>
+            </div>
+            <button id="deleteSession" class="danger-outline" type="button">删除当前会话</button>
+          </details>
         </div>
       </aside>
 
       <section class="panel chat-panel" aria-label="聊天">
         <div class="chat-head">
           <div class="chat-title">
+            <div class="section-kicker">Transcript</div>
             <h2 id="activeTitle">新会话</h2>
             <p id="activeMeta">准备就绪</p>
           </div>
@@ -890,8 +1894,8 @@
         </div>
 
         <form id="composer" class="composer">
-          <label for="textInput">文字输入</label>
-          <textarea id="textInput" placeholder="输入要和小七说的话，Enter 发送，Shift + Enter 换行。"></textarea>
+          <label class="visually-hidden" for="textInput">文字输入</label>
+          <textarea id="textInput" placeholder="输入消息…"></textarea>
           <div class="composer-actions">
             <div class="composer-controls">
               <label class="toggle" for="speakReply">
@@ -906,10 +1910,11 @@
       </section>
 
       <div class="side-stack">
-        <section class="panel" aria-label="语音输入">
+        <section class="panel voice-panel" aria-label="语音输入">
           <div class="panel-head">
             <div>
-              <h3>语音输入</h3>
+              <div class="section-kicker">Live Voice</div>
+              <h3>和小七通话</h3>
               <p id="voiceCapability" class="muted">检测中</p>
             </div>
             <span id="voiceBadge" class="badge">待机</span>
@@ -917,50 +1922,71 @@
           <div class="panel-body">
             <div class="call-mode">
               <div class="call-mode-head">
-                <span id="callIndicator" class="call-indicator" aria-hidden="true"></span>
+                <div class="call-visual" aria-hidden="true">
+                  <span id="callIndicator" class="call-indicator"></span>
+                </div>
                 <div class="call-copy">
                   <div class="call-title">自动电话模式</div>
                   <div id="callState" class="call-state" aria-live="polite">待机，点击一次后会连续对话。</div>
+                  <div class="call-note">说完停顿约 1.1 秒，小七回复后会自动继续听。</div>
                 </div>
               </div>
               <div class="call-actions">
                 <button id="startCall" class="primary" type="button">开始通话</button>
                 <button id="hangUp" class="danger" type="button" disabled>挂断</button>
               </div>
-              <div class="call-note">基础版为半双工：你说完约 1.1 秒后自动发送，小七说完后自动继续听。</div>
             </div>
-            <label for="durationRange">最长录音时间</label>
-            <div class="duration-row">
-              <input id="durationRange" type="range" min="5" max="300" step="5" />
-              <input id="durationNumber" type="number" min="5" max="300" step="5" />
+
+            <div class="transcript-shell">
+              <div class="transcript-label">
+                <span class="section-kicker">实时转写</span>
+                <span>仅保存在当前会话</span>
+              </div>
+              <div id="transcriptPreview" class="transcript-preview">转写预览会显示在这里。</div>
+              <div id="voiceStatus" class="voice-status">准备好后，点击一次即可连续对话。</div>
             </div>
-            <div class="quick-row">
-              <button class="secondary" type="button" data-seconds="15">15 秒</button>
-              <button class="secondary" type="button" data-seconds="30">30 秒</button>
-              <button class="secondary" type="button" data-seconds="60">60 秒</button>
-              <button class="secondary" type="button" data-seconds="120">120 秒</button>
-            </div>
-            <div class="meter"><div id="bar" class="bar"></div></div>
-            <div class="button-row">
-              <button id="record" class="primary" type="button">浏览器录音</button>
-              <button id="piRecord" class="secondary" type="button">智能助手录音</button>
-              <button id="stop" class="danger" type="button" disabled>停止</button>
-            </div>
-            <div id="voiceStatus" class="voice-status">浏览器录音和智能助手录音都可手动停止。</div>
-            <div id="transcriptPreview" class="transcript-preview">转写预览会显示在这里。</div>
+
+            <details class="advanced-controls">
+              <summary>
+                <span>手动录音</span>
+                <span class="disclosure" aria-hidden="true">⌄</span>
+              </summary>
+              <div class="advanced-body">
+                <label for="durationRange">最长录音时间</label>
+                <div class="duration-row">
+                  <input id="durationRange" type="range" min="5" max="300" step="5" />
+                  <input id="durationNumber" type="number" min="5" max="300" step="5" aria-label="最长录音秒数" />
+                </div>
+                <div class="quick-row">
+                  <button class="secondary" type="button" data-seconds="15">15 秒</button>
+                  <button class="secondary" type="button" data-seconds="30">30 秒</button>
+                  <button class="secondary" type="button" data-seconds="60">60 秒</button>
+                  <button class="secondary" type="button" data-seconds="120">120 秒</button>
+                </div>
+                <div class="meter" aria-hidden="true"><div id="bar" class="bar"></div></div>
+                <div class="button-row">
+                  <button id="record" class="primary" type="button">浏览器录音</button>
+                  <button id="piRecord" class="secondary" type="button">智能助手录音</button>
+                  <button id="stop" class="danger" type="button" disabled>停止</button>
+                </div>
+              </div>
+            </details>
           </div>
         </section>
 
-        <section class="panel" aria-label="功能状态">
-          <div class="panel-head">
-            <div>
-              <h3>功能状态</h3>
-              <p class="muted">Hermes、模型、转写和朗读</p>
+        <section class="panel system-panel" aria-label="功能状态">
+          <details>
+            <summary class="system-summary">
+              <div class="system-summary-copy">
+                <div class="section-kicker">System</div>
+                <h3>系统状态</h3>
+              </div>
+              <span class="disclosure" aria-hidden="true">⌄</span>
+            </summary>
+            <div class="panel-body">
+              <div id="healthRows" class="status-list"></div>
             </div>
-          </div>
-          <div class="panel-body">
-            <div id="healthRows" class="status-list"></div>
-          </div>
+          </details>
         </section>
       </div>
     </main>
