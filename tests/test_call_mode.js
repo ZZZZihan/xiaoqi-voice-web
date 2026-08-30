@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { CALL_STATES, CallModeError, createCallController } = require("../call-mode.js");
+const { CALL_STATES, CallModeError, createCallController, isNoSpeechError } = require("../call-mode.js");
 
 test("a successful turn listens, processes, speaks, and can hang up", async () => {
   const states = [];
@@ -55,6 +55,37 @@ test("no speech retries without consuming the consecutive error budget", async (
   assert.equal(controller.getConsecutiveErrors(), 0);
   assert.ok(states.includes(CALL_STATES.RECOVERING));
   assert.equal(states.at(-1), CALL_STATES.ENDED);
+});
+
+test("Volcengine empty-audio errors are classified as no speech", async () => {
+  assert.equal(
+    isNoSpeechError(
+      new Error(
+        'Volcengine ASR failed: {"code": 1013, "message": "No valid speeches found in input audio"}',
+      ),
+    ),
+    true,
+  );
+
+  let processingAttempts = 0;
+  let controller;
+  controller = createCallController({
+    captureTurn: async () => ({ kind: "audio" }),
+    processTurn: async () => {
+      processingAttempts += 1;
+      if (processingAttempts === 1) {
+        throw new Error("No valid speeches found in input audio");
+      }
+      return { audio_url: "/audio/reply.ogg" };
+    },
+    playReply: async () => controller.hangUp("test_complete"),
+    sleep: async () => {},
+  });
+
+  await controller.start();
+
+  assert.equal(processingAttempts, 2);
+  assert.equal(controller.getConsecutiveErrors(), 0);
 });
 
 test("three consecutive processing errors end the call", async () => {

@@ -41,6 +41,12 @@
     return Boolean(error && (error.name === "AbortError" || error.code === "aborted"));
   }
 
+  function isNoSpeechError(error) {
+    if (error && error.code === "no_speech") return true;
+    const message = String((error && error.message) || error || "");
+    return /no\s+(?:valid\s+)?speech(?:es)?|没有.{0,16}语音|未识别.{0,16}语音|无有效语音/i.test(message);
+  }
+
   function sleep(ms, signal) {
     if (!ms) return Promise.resolve();
     return new Promise((resolve, reject) => {
@@ -134,13 +140,16 @@
             break;
           }
 
-          const callError =
+          let callError =
             error instanceof CallModeError
               ? error
               : new CallModeError(error && error.message ? error.message : "电话模式发生未知错误", "call_error", {
                   cause: error,
                 });
-          const noSpeech = callError.code === "no_speech";
+          const noSpeech = isNoSpeechError(callError);
+          if (noSpeech && callError.code !== "no_speech") {
+            callError = new CallModeError("没有听到清晰语音", "no_speech", { cause: callError });
+          }
           if (!noSpeech) consecutiveErrors += 1;
 
           notify(onError, {
@@ -223,5 +232,6 @@
     CallModeError,
     createCallController,
     isAbortError,
+    isNoSpeechError,
   });
 });
