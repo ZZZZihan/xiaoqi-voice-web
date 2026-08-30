@@ -188,6 +188,8 @@ The tests mock Hermes chat/TTS where needed, so they validate the web app withou
 
 ## Current Acceptance Status
 
-The Raspberry Pi deployment at `192.168.0.87:8787` has been verified with Hermes CLI, chat, Edge TTS, local STT model cache, and generated audio retrieval. Backend STT may still be slow on first use after restart because the local faster-whisper model must load once.
+The Raspberry Pi 5 deployment at `192.168.5.12:8787` now runs the automatic half-duplex call implementation from runtime source commit `50763c91ebcc26f0565b1c89159ef5297bf7df2f`. Local tests, remote static/API checks, real Chromium microphone capture, repeated empty-speech recovery, and hangup cleanup passed. Volcengine STT and Edge TTS report ready; the Pi has no connected capture device, so the accepted input/output path is the browser through a localhost SSH tunnel.
+
+The complete spoken-answer loop is **not yet accepted** because a controlled Hermes request returned Xiaomi MiMo HTTP 401 `Invalid API Key`. The configured credential is `XIAOMI_API_KEY` in `/home/pi/.hermes/.env`; it must be replaced by the user or provider owner, then the service and spoken loop must be reverified. Historical May hardware evidence does not describe the currently connected devices.
 
 See `docs/ACCEPTANCE.md` for the latest concrete checklist and command evidence.

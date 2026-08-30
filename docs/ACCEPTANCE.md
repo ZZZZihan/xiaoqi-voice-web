@@ -1,5 +1,43 @@
 # Acceptance Checklist
 
+## 2026-08-30 Automatic Call Mode Rollout
+
+Target: Raspberry Pi 5 at `192.168.5.12`, SSH alias `pi5`, app path `/home/pi/.hermes/voice-web`, HTTP port `8787`.
+
+### Delivered Scope
+
+- Deployed source provenance: local Git commit `50763c91ebcc26f0565b1c89159ef5297bf7df2f` on branch `codex/automatic-voice`.
+- `call-mode.js`: deep state-machine Module with the `listening -> processing -> speaking -> listening` loop, abortable hangup, no-speech recovery, and a three-error limit for genuine runtime failures.
+- `index.html`: browser media Adapter with microphone permission handling, echo/noise constraints, local voice activity detection, approximately 1.1 second silence endpointing, backend STT fallback, reply playback awaiting, control locking, mobile-first call layout, and stable hangup cleanup.
+- `server.py`: no new model path; it serves the state-machine asset and reuses the existing Hermes `/api/respond` and `/api/converse` Interfaces.
+- Browser microphone and speaker are the accepted hardware path for this version. Raspberry Pi-native capture remains unavailable until capture hardware is reconnected.
+
+### Verification Evidence
+
+- Pre-deployment backup: `/home/pi/.hermes/voice-web/backups/20260830-1949-before-automatic-voice-1669cc3/`.
+- Silence-fix backup: `/home/pi/.hermes/voice-web/backups/20260830-1958-before-silence-fix-5b64705/`.
+- Local backend tests: `python3 -m pytest -q` passed, `40 passed` with two pre-existing FastAPI `on_event` deprecation warnings.
+- Local state-machine tests: `node --test tests/test_call_mode.js` passed, `6 passed`.
+- Local Python compile, JavaScript parse, and `git diff --check` passed.
+- Remote service restart succeeded at `2026-08-30 19:49:54 CST`; observed PID `3658` and `systemctl --user is-active` returned `active`.
+- Remote `GET /health` returned `ok: true`; Volcengine STT reported `runtime=volcengine-v2-ws`, `ready=true`; Edge TTS reported `voice=zh-CN-XiaoxiaoNeural`, `ready=true`.
+- Remote `GET /call-mode.js` returned HTTP 200, `cache-control: no-store`, and `content-type: text/javascript; charset=utf-8`.
+- Deployed file SHA-256 values matched the local files: `server.py` `dab1e44e...`, `call-mode.js` `c394e365...`, and final `index.html` `8de03651...`.
+- Real Chromium through `ssh -N -L 18788:127.0.0.1:8787 pi5` verified secure-context microphone access, start-call control locking, automatic capture, recovery, and hangup control restoration.
+- The first remote browser run exposed Volcengine code `1013`, `No valid speeches found in input audio`; after the fix, four consecutive empty-audio turns were classified as no speech and automatically returned to `listening` without consuming the genuine-error budget.
+- A final remote hangup check returned `state=通话已结束`, `preview=通话已结束。`, start enabled, and hangup disabled.
+- Isolated TTS acceptance passed: a controlled local-response request returned HTTP 200 and a retrievable Ogg audio URL. The temporary web session and generated audio were removed from active storage and retained only with the diagnostic backup evidence.
+
+### Open Acceptance Gates
+
+- **End-to-end Hermes answer is blocked, not accepted.** A controlled Hermes request returned Xiaomi MiMo HTTP 401 `Invalid API Key`. The configured provider is `xiaomi`, model `mimo-v2.5-pro`; the credential variable is `XIAOMI_API_KEY` in `/home/pi/.hermes/.env`. The value was not read or changed during this rollout.
+- `/health` confirms that the Hermes CLI and provider configuration exist; it does not make an authenticated model request, so `ok: true` does not override the observed 401.
+- The Pi currently has no ALSA capture hardware and no connected USB peripherals. The former `plughw:CARD=Device,DEV=0` microphone and M83 playback device from the May evidence are absent. HDMI appears as a playback candidate, but audible Pi-side playback was not accepted.
+- Direct `http://192.168.5.12:8787` is not a browser secure context. Use the documented localhost SSH tunnel for the basic version; trusted HTTPS is still required for direct mobile/tablet microphone access.
+- Wake word, barge-in, and full-duplex echo-controlled conversation are outside this basic version.
+
+## 2026-05-04 Historical Acceptance
+
 Date: 2026-05-04
 Target: Raspberry Pi at `192.168.0.87`, app path `/home/pi/.hermes/voice-web`, HTTPS port `8787`.
 
