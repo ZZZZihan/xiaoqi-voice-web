@@ -1,0 +1,1734 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>生活助手小七</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f6f8;
+        --surface: #ffffff;
+        --surface-soft: #f8fafc;
+        --ink: #17202e;
+        --muted: #64748b;
+        --line: #d8dee8;
+        --line-strong: #c7d0dd;
+        --accent: #0f766e;
+        --accent-dark: #115e59;
+        --blue: #2563eb;
+        --warn: #b45309;
+        --danger: #b42318;
+        --danger-soft: #fee4e2;
+        --ok: #047857;
+        --shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        min-height: 38px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 0 13px;
+        font-weight: 650;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      button:disabled,
+      input:disabled,
+      textarea:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--ink);
+        outline: none;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+      }
+
+      textarea {
+        min-height: 96px;
+        max-height: 220px;
+        resize: vertical;
+        padding: 12px;
+        line-height: 1.55;
+      }
+
+      input {
+        height: 38px;
+        padding: 0 10px;
+      }
+
+      label {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0;
+        margin-bottom: 8px;
+      }
+
+      audio {
+        width: 100%;
+        height: 36px;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: rgba(255, 255, 255, 0.94);
+        border-bottom: 1px solid var(--line);
+        backdrop-filter: blur(14px);
+      }
+
+      .topbar-inner {
+        width: min(1440px, calc(100vw - 24px));
+        min-height: 68px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 12px;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 40px;
+        height: 40px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 8px;
+        background: #102a43;
+        color: #fff;
+        font-weight: 800;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 20px;
+        line-height: 1.2;
+      }
+
+      .brand p,
+      .muted {
+        color: var(--muted);
+      }
+
+      .brand p {
+        margin-top: 3px;
+        font-size: 13px;
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 0 11px;
+        color: var(--muted);
+        background: #fff;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .badge.ok {
+        border-color: rgba(4, 120, 87, 0.28);
+        color: var(--ok);
+        background: #ecfdf5;
+      }
+
+      .badge.err {
+        border-color: rgba(180, 35, 24, 0.24);
+        color: var(--danger);
+        background: #fff1f0;
+      }
+
+      .shell {
+        width: min(1440px, calc(100vw - 24px));
+        margin: 0 auto;
+        padding: 14px 0 26px;
+        display: grid;
+        grid-template-columns: 290px minmax(0, 1fr) 340px;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .panel {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border-bottom: 1px solid var(--line);
+        padding: 14px;
+      }
+
+      .panel-head h2,
+      .panel-head h3 {
+        font-size: 15px;
+        line-height: 1.2;
+      }
+
+      .panel-body {
+        padding: 14px;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 82px;
+        overflow: hidden;
+      }
+
+      .session-list {
+        max-height: calc(100vh - 318px);
+        overflow: auto;
+        padding: 8px;
+      }
+
+      .session-empty,
+      .empty-state {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.55;
+        padding: 18px 14px;
+      }
+
+      .session-item {
+        display: block;
+        width: 100%;
+        min-height: 68px;
+        margin: 0 0 6px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        padding: 10px;
+        color: var(--ink);
+        text-align: left;
+      }
+
+      .session-item:hover {
+        background: var(--surface-soft);
+        border-color: var(--line);
+      }
+
+      .session-item.active {
+        background: #eef7f6;
+        border-color: rgba(15, 118, 110, 0.38);
+      }
+
+      .session-title {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 760;
+        white-space: nowrap;
+      }
+
+      .session-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .session-last {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .session-tools {
+        border-top: 1px solid var(--line);
+        padding: 14px;
+      }
+
+      .rename-row,
+      .button-row,
+      .composer-controls,
+      .duration-row,
+      .composer-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .rename-row input {
+        flex: 1 1 auto;
+      }
+
+      .primary {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .primary:hover:not(:disabled) {
+        background: var(--accent-dark);
+      }
+
+      .secondary {
+        border-color: var(--line);
+        background: #fff;
+        color: var(--ink);
+      }
+
+      .secondary:hover:not(:disabled) {
+        border-color: var(--line-strong);
+        background: var(--surface-soft);
+      }
+
+      .danger {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .danger-outline {
+        width: 100%;
+        margin-top: 10px;
+        border-color: rgba(180, 35, 24, 0.24);
+        background: #fff;
+        color: var(--danger);
+      }
+
+      .icon-button {
+        width: 38px;
+        padding: 0;
+        border-color: var(--line);
+        background: #fff;
+        color: var(--ink);
+      }
+
+      .chat-panel {
+        min-height: calc(100vh - 108px);
+        display: grid;
+        grid-template-rows: auto minmax(320px, 1fr) auto;
+        overflow: hidden;
+      }
+
+      .chat-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 14px 16px;
+      }
+
+      .chat-title {
+        min-width: 0;
+      }
+
+      .chat-title h2 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 16px;
+        line-height: 1.25;
+        white-space: nowrap;
+      }
+
+      .chat-title p {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .messages {
+        min-height: 0;
+        overflow: auto;
+        padding: 16px;
+        background: linear-gradient(#fff, #fbfcfe);
+      }
+
+      .message {
+        width: min(82%, 760px);
+        margin: 0 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fff;
+      }
+
+      .message.user {
+        margin-left: auto;
+        border-color: rgba(37, 99, 235, 0.22);
+        background: #eff6ff;
+      }
+
+      .message.assistant {
+        margin-right: auto;
+        border-color: rgba(15, 118, 110, 0.2);
+      }
+
+      .message-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 7px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .message-body {
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+        line-height: 1.62;
+      }
+
+      .message-audio {
+        margin-top: 10px;
+      }
+
+      .composer {
+        border-top: 1px solid var(--line);
+        padding: 14px;
+        background: #fff;
+      }
+
+      .composer-actions {
+        flex-wrap: wrap;
+        justify-content: space-between;
+        margin-top: 10px;
+      }
+
+      .composer-controls {
+        flex: 0 1 auto;
+        flex-wrap: wrap;
+      }
+
+      .playback-choice {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .playback-choice button {
+        min-width: 0;
+        white-space: normal;
+      }
+
+      .playback-choice button.active {
+        border-color: rgba(15, 118, 110, 0.42);
+        background: #eef7f6;
+        color: var(--accent-dark);
+      }
+
+      .top-actions .playback-choice {
+        width: min(420px, 46vw);
+        margin-bottom: 0;
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 700;
+        user-select: none;
+      }
+
+      .toggle input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent);
+      }
+
+      .side-stack {
+        display: grid;
+        gap: 14px;
+        min-width: 0;
+      }
+
+      .voice-status {
+        min-height: 21px;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .voice-status.ok {
+        color: var(--ok);
+      }
+
+      .voice-status.err {
+        color: var(--danger);
+      }
+
+      .duration-row {
+        align-items: stretch;
+      }
+
+      .duration-row input[type="range"] {
+        height: 38px;
+        padding: 0;
+        accent-color: var(--accent);
+      }
+
+      .duration-row input[type="number"] {
+        width: 86px;
+        flex: 0 0 86px;
+      }
+
+      .quick-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .quick-row button {
+        min-width: 0;
+        padding: 0 8px;
+      }
+
+      .meter {
+        height: 8px;
+        margin: 14px 0;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e6ebf2;
+      }
+
+      .bar {
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--blue);
+        transition: width 120ms linear;
+      }
+
+      .transcript-preview {
+        min-height: 76px;
+        margin-top: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-soft);
+        padding: 10px;
+        color: var(--ink);
+        font-size: 13px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+
+      .status-list {
+        display: grid;
+        gap: 0;
+      }
+
+      .status-row {
+        display: grid;
+        grid-template-columns: 96px minmax(0, 1fr);
+        gap: 10px;
+        padding: 11px 0;
+        border-bottom: 1px solid var(--line);
+        align-items: start;
+      }
+
+      .status-row:first-child {
+        padding-top: 0;
+      }
+
+      .status-row:last-child {
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+
+      .status-name {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 760;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: var(--muted);
+      }
+
+      .dot.ok {
+        background: var(--ok);
+      }
+
+      .dot.warn {
+        background: var(--warn);
+      }
+
+      .dot.err {
+        background: var(--danger);
+      }
+
+      .status-value {
+        min-width: 0;
+        color: var(--ink);
+        font-size: 13px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .chat-status {
+        min-width: 0;
+        color: var(--muted);
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+
+      .chat-status.ok,
+      .ok-text {
+        color: var(--ok);
+      }
+
+      .chat-status.err,
+      .err-text {
+        color: var(--danger);
+      }
+
+      @media (max-width: 1120px) {
+        .shell {
+          grid-template-columns: 260px minmax(0, 1fr);
+        }
+
+        .side-stack {
+          grid-column: 1 / -1;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 820px) {
+        .topbar-inner {
+          min-height: auto;
+          padding: 12px 0;
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .top-actions {
+          width: 100%;
+          justify-content: space-between;
+        }
+
+        .top-actions .playback-choice {
+          width: 100%;
+          order: 3;
+        }
+
+        .shell,
+        .side-stack {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: static;
+        }
+
+        .session-list {
+          max-height: 260px;
+        }
+
+        .chat-panel {
+          min-height: 620px;
+        }
+
+        .message {
+          width: 100%;
+        }
+      }
+
+      @media (max-width: 520px) {
+        .brand-mark {
+          display: none;
+        }
+
+        .composer-actions,
+        .button-row {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .composer-controls {
+          align-items: stretch;
+          flex-direction: column;
+          width: 100%;
+        }
+
+        .composer-actions button,
+        .button-row button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="brand-mark">七</div>
+          <div>
+            <h1>生活助手小七</h1>
+            <p>学习助手、语音输入、回复朗读和会话管理</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <div class="playback-choice" role="group" aria-label="语音回复播放位置">
+            <button id="playBrowser" class="secondary" type="button" aria-pressed="true">浏览器播放语音回复</button>
+            <button id="playPi" class="secondary" type="button" aria-pressed="false">智能助手回复</button>
+          </div>
+          <button id="refreshHealth" class="icon-button" type="button" title="刷新状态">↻</button>
+          <span id="connectionBadge" class="badge">连接中</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="shell">
+      <aside class="panel sidebar" aria-label="会话管理">
+        <div class="panel-head">
+          <div>
+            <h2>会话</h2>
+            <p id="sessionCount" class="muted">加载中</p>
+          </div>
+          <button id="newSession" class="primary" type="button">新建</button>
+        </div>
+        <div id="sessionList" class="session-list"></div>
+        <div class="session-tools">
+          <label for="sessionTitle">当前标题</label>
+          <div class="rename-row">
+            <input id="sessionTitle" type="text" maxlength="32" placeholder="新会话" />
+            <button id="saveTitle" class="secondary" type="button">保存</button>
+          </div>
+          <button id="deleteSession" class="danger-outline" type="button">删除当前会话</button>
+        </div>
+      </aside>
+
+      <section class="panel chat-panel" aria-label="聊天">
+        <div class="chat-head">
+          <div class="chat-title">
+            <h2 id="activeTitle">新会话</h2>
+            <p id="activeMeta">准备就绪</p>
+          </div>
+          <span id="chatBadge" class="badge">待机</span>
+        </div>
+
+        <div id="messages" class="messages">
+          <div class="empty-state">正在加载会话。</div>
+        </div>
+
+        <form id="composer" class="composer">
+          <label for="textInput">文字输入</label>
+          <textarea id="textInput" placeholder="输入要和小七说的话，Enter 发送，Shift + Enter 换行。"></textarea>
+          <div class="composer-actions">
+            <div class="composer-controls">
+              <label class="toggle" for="speakReply">
+                <input id="speakReply" type="checkbox" />
+                朗读回复
+              </label>
+            </div>
+            <span id="chatStatus" class="chat-status">当前会话会保存在树莓派本地。</span>
+            <button id="sendText" class="primary" type="submit">发送</button>
+          </div>
+        </form>
+      </section>
+
+      <div class="side-stack">
+        <section class="panel" aria-label="语音输入">
+          <div class="panel-head">
+            <div>
+              <h3>语音输入</h3>
+              <p id="voiceCapability" class="muted">检测中</p>
+            </div>
+            <span id="voiceBadge" class="badge">待机</span>
+          </div>
+          <div class="panel-body">
+            <label for="durationRange">最长录音时间</label>
+            <div class="duration-row">
+              <input id="durationRange" type="range" min="5" max="300" step="5" />
+              <input id="durationNumber" type="number" min="5" max="300" step="5" />
+            </div>
+            <div class="quick-row">
+              <button class="secondary" type="button" data-seconds="15">15 秒</button>
+              <button class="secondary" type="button" data-seconds="30">30 秒</button>
+              <button class="secondary" type="button" data-seconds="60">60 秒</button>
+              <button class="secondary" type="button" data-seconds="120">120 秒</button>
+            </div>
+            <div class="meter"><div id="bar" class="bar"></div></div>
+            <div class="button-row">
+              <button id="record" class="primary" type="button">浏览器录音</button>
+              <button id="piRecord" class="secondary" type="button">智能助手录音</button>
+              <button id="stop" class="danger" type="button" disabled>停止</button>
+            </div>
+            <div id="voiceStatus" class="voice-status">浏览器录音和智能助手录音都可手动停止。</div>
+            <div id="transcriptPreview" class="transcript-preview">转写预览会显示在这里。</div>
+          </div>
+        </section>
+
+        <section class="panel" aria-label="功能状态">
+          <div class="panel-head">
+            <div>
+              <h3>功能状态</h3>
+              <p class="muted">Hermes、模型、转写和朗读</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="healthRows" class="status-list"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const $ = (selector) => document.querySelector(selector);
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      const els = {
+        activeMeta: $("#activeMeta"),
+        activeTitle: $("#activeTitle"),
+        bar: $("#bar"),
+        chatBadge: $("#chatBadge"),
+        chatStatus: $("#chatStatus"),
+        composer: $("#composer"),
+        connectionBadge: $("#connectionBadge"),
+        deleteSession: $("#deleteSession"),
+        durationNumber: $("#durationNumber"),
+        durationRange: $("#durationRange"),
+        healthRows: $("#healthRows"),
+        messages: $("#messages"),
+        newSession: $("#newSession"),
+        piRecord: $("#piRecord"),
+        playBrowser: $("#playBrowser"),
+        playPi: $("#playPi"),
+        record: $("#record"),
+        refreshHealth: $("#refreshHealth"),
+        saveTitle: $("#saveTitle"),
+        sendText: $("#sendText"),
+        sessionCount: $("#sessionCount"),
+        sessionList: $("#sessionList"),
+        sessionTitle: $("#sessionTitle"),
+        speakReply: $("#speakReply"),
+        stop: $("#stop"),
+        textInput: $("#textInput"),
+        transcriptPreview: $("#transcriptPreview"),
+        voiceBadge: $("#voiceBadge"),
+        voiceCapability: $("#voiceCapability"),
+        voiceStatus: $("#voiceStatus"),
+      };
+
+      const state = {
+        busy: false,
+        current: null,
+        health: null,
+        playTarget: localStorage.getItem("hermes.playTarget") === "pi" ? "pi" : "browser",
+        sessions: [],
+        duration: Number(localStorage.getItem("hermes.duration") || 60),
+      };
+
+      let recognition;
+      let stream;
+      let recorder;
+      let chunks = [];
+      let browserTranscript = "";
+      let recordingMimeType = "audio/webm";
+      let recordingFilename = "recording.webm";
+      let startedAt = 0;
+      let timer;
+      let progress;
+      let submitted = false;
+      let stopPending = false;
+      let recordingMode = "";
+      let recognitionDone = true;
+      let recorderDone = true;
+      let activeDuration = state.duration;
+      let piRecordJobId = "";
+      let piPoll;
+      let piStopRequested = false;
+
+      function escapeHtml(value) {
+        return String(value || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function formatTime(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return new Intl.DateTimeFormat("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(date);
+      }
+
+      function setBadge(element, text, tone = "") {
+        element.textContent = text;
+        element.className = `badge ${tone}`.trim();
+      }
+
+      function setChatStatus(text, tone = "") {
+        els.chatStatus.textContent = text;
+        els.chatStatus.className = `chat-status ${tone}`.trim();
+      }
+
+      function setVoiceStatus(text, tone = "") {
+        els.voiceStatus.textContent = text;
+        els.voiceStatus.className = `voice-status ${tone}`.trim();
+      }
+
+      function clampDuration(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return 60;
+        return Math.max(5, Math.min(300, Math.round(number / 5) * 5));
+      }
+
+      function setDuration(value) {
+        state.duration = clampDuration(value);
+        els.durationRange.value = String(state.duration);
+        els.durationNumber.value = String(state.duration);
+        localStorage.setItem("hermes.duration", String(state.duration));
+      }
+
+      async function requestJSON(path, options = {}) {
+        const headers = { ...(options.headers || {}) };
+        const init = { method: options.method || "GET", headers };
+        if (options.body instanceof FormData) {
+          init.body = options.body;
+        } else if (options.body !== undefined) {
+          headers["Content-Type"] = "application/json";
+          init.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+        }
+
+        const response = await fetch(path, init);
+        const text = await response.text();
+        let data = {};
+        if (text) {
+          try {
+            data = JSON.parse(text);
+          } catch {
+            data = { detail: text };
+          }
+        }
+        if (!response.ok) {
+          throw new Error(data.detail || `HTTP ${response.status}`);
+        }
+        return data;
+      }
+
+      function canUseBackendStt() {
+        return Boolean(state.health && (!state.health.stt || state.health.stt.ready));
+      }
+
+      function voiceAvailable() {
+        return Boolean(SpeechRecognition || canUseBackendStt());
+      }
+
+      function canUsePiRecord() {
+        const piRecord = state.health && state.health.pi_record;
+        return Boolean(piRecord && piRecord.available && canUseBackendStt());
+      }
+
+      function canUsePiPlayback() {
+        const piPlayback = state.health && state.health.pi_playback;
+        return Boolean(piPlayback && piPlayback.available);
+      }
+
+      function renderPlayTarget() {
+        const usePi = state.playTarget === "pi";
+        els.playBrowser.classList.toggle("active", !usePi);
+        els.playPi.classList.toggle("active", usePi);
+        els.playBrowser.setAttribute("aria-pressed", String(!usePi));
+        els.playPi.setAttribute("aria-pressed", String(usePi));
+        els.playPi.title = !canUsePiPlayback() ? "树莓派播放未就绪" : "回复会在树莓派播放";
+      }
+
+      function setPlayTarget(target) {
+        state.playTarget = target === "pi" ? "pi" : "browser";
+        localStorage.setItem("hermes.playTarget", state.playTarget);
+        renderPlayTarget();
+        setChatStatus(state.playTarget === "pi" ? "回复会发送到树莓派播放。" : "回复会在浏览器播放。");
+      }
+
+      function setIdleVoiceControls() {
+        els.record.disabled = state.busy || !voiceAvailable();
+        els.piRecord.disabled = state.busy || !canUsePiRecord();
+        els.stop.disabled = true;
+      }
+
+      function renderHealth() {
+        const health = state.health;
+        if (!health) {
+          setBadge(els.connectionBadge, "连接中");
+          els.healthRows.innerHTML = '<div class="empty-state">正在读取状态。</div>';
+          return;
+        }
+
+        setBadge(els.connectionBadge, health.ok ? "已连接" : "未就绪", health.ok ? "ok" : "err");
+        const chat = health.chat || {};
+        const stt = health.stt || {};
+        const tts = health.tts || {};
+        const piRecord = health.pi_record || {};
+        const piPlayback = health.pi_playback || {};
+        const weather = health.weather || {};
+        const briefing = health.briefing || {};
+        const reminders = health.reminders || {};
+        const rows = [
+          ["Hermes CLI", health.hermes_cli ? "已连接" : "未找到", health.hermes_cli ? "ok" : "err"],
+          ["模型", `${chat.provider || "-"} / ${chat.model || "-"}`, chat.model ? "ok" : "warn"],
+          ["端点", chat.base_url || "默认配置", chat.base_url ? "ok" : "warn"],
+          ["天气查询", weather.ready ? `${weather.provider || "Open-Meteo"} 可用` : "不可用", weather.ready ? "ok" : "warn"],
+          ["今日简报", briefing.ready ? "可用" : "不可用", briefing.ready ? "ok" : "warn"],
+          ["本地提醒", reminders.ready ? `${reminders.open_count || 0} 个未完成` : "不可用", reminders.ready ? "ok" : "warn"],
+          ["浏览器转写", SpeechRecognition ? "可用" : "不可用", SpeechRecognition ? "ok" : "warn"],
+          ["后端转写", stt.ready ? `${stt.provider || "-"} 就绪` : stt.detail || `${stt.provider || "-"} 未就绪`, stt.ready ? "ok" : "warn"],
+          ["智能助手录音", piRecord.available ? `${piRecord.device || "auto"} / ${piRecord.rate || "-"} Hz` : piRecord.detail || "不可用", piRecord.available ? "ok" : "warn"],
+          ["树莓派播放", piPlayback.available ? `${piPlayback.player || "可用"}${piPlayback.device ? ` / ${piPlayback.device}` : ""}` : "不可用", piPlayback.available ? "ok" : "warn"],
+          ["回复朗读", tts.ready ? `${tts.provider || "-"} ${tts.voice || ""}`.trim() : "未就绪", tts.ready ? "ok" : "err"],
+          ["会话存储", health.sessions_file || "已启用", "ok"],
+        ];
+
+        els.healthRows.innerHTML = rows
+          .map(
+            ([name, value, tone]) => `
+              <div class="status-row">
+                <div class="status-name"><span class="dot ${tone}"></span>${escapeHtml(name)}</div>
+                <div class="status-value">${escapeHtml(value)}</div>
+              </div>
+            `,
+          )
+          .join("");
+
+        const browserOption = SpeechRecognition
+          ? "浏览器录音可用"
+          : canUseBackendStt()
+            ? "浏览器录音可上传后端转写"
+            : "浏览器录音不可用";
+        const piOption = canUsePiRecord() ? "智能助手录音可用" : "智能助手录音不可用";
+        els.voiceCapability.textContent = `${browserOption}；${piOption}`;
+        renderPlayTarget();
+        setIdleVoiceControls();
+      }
+
+      function renderSessions() {
+        els.sessionCount.textContent = `${state.sessions.length} 个会话`;
+        if (!state.sessions.length) {
+          els.sessionList.innerHTML = '<div class="session-empty">还没有会话。</div>';
+          return;
+        }
+
+        const activeId = state.current && state.current.id;
+        els.sessionList.innerHTML = state.sessions
+          .map((session) => {
+            const active = session.id === activeId ? "active" : "";
+            return `
+              <button class="session-item ${active}" type="button" data-session="${escapeHtml(session.id)}">
+                <span class="session-title">${escapeHtml(session.title || "新会话")}</span>
+                <span class="session-meta">
+                  <span>${session.message_count || 0} 条</span>
+                  <span>${escapeHtml(formatTime(session.updated_at))}</span>
+                </span>
+                <span class="session-last">${escapeHtml(session.last_message || "暂无消息")}</span>
+              </button>
+            `;
+          })
+          .join("");
+
+        els.sessionList.querySelectorAll("[data-session]").forEach((button) => {
+          button.addEventListener("click", () => selectSession(button.dataset.session));
+        });
+      }
+
+      function renderMessages() {
+        if (!state.current) {
+          els.messages.innerHTML = '<div class="empty-state">请选择或新建一个会话。</div>';
+          return;
+        }
+
+        const messages = state.current.messages || [];
+        if (!messages.length) {
+          els.messages.innerHTML = '<div class="empty-state">这个会话还没有消息，可以从下方输入文字，或使用右侧语音输入。</div>';
+          return;
+        }
+
+        els.messages.innerHTML = messages
+          .map((message) => {
+            const roleName = message.role === "user" ? "用户" : "小七";
+            const kind = message.kind === "voice" ? "语音" : "文字";
+            const audio = message.audio_url
+              ? `<div class="message-audio"><audio controls src="${escapeHtml(message.audio_url)}"></audio></div>`
+              : "";
+            return `
+              <article class="message ${escapeHtml(message.role)}">
+                <div class="message-meta">
+                  <span>${roleName} · ${kind}</span>
+                  <span>${escapeHtml(formatTime(message.created_at))}</span>
+                </div>
+                <div class="message-body">${escapeHtml(message.content)}</div>
+                ${audio}
+              </article>
+            `;
+          })
+          .join("");
+        els.messages.scrollTop = els.messages.scrollHeight;
+      }
+
+      function renderCurrent() {
+        const current = state.current;
+        els.activeTitle.textContent = current ? current.title || "新会话" : "未选择会话";
+        els.sessionTitle.value = current ? current.title || "新会话" : "";
+        els.deleteSession.disabled = !current;
+        els.saveTitle.disabled = !current;
+        const count = current && current.messages ? current.messages.length : 0;
+        els.activeMeta.textContent = current ? `${count} 条消息 · ${formatTime(current.updated_at) || "刚刚"}` : "准备就绪";
+        renderMessages();
+        renderSessions();
+      }
+
+      async function loadHealth() {
+        try {
+          state.health = await requestJSON("/health", { method: "GET" });
+          renderHealth();
+        } catch (error) {
+          state.health = null;
+          setBadge(els.connectionBadge, "连接失败", "err");
+          els.healthRows.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+          els.record.disabled = true;
+          els.piRecord.disabled = true;
+        }
+      }
+
+      async function loadSessions() {
+        const data = await requestJSON("/api/sessions");
+        state.sessions = data.sessions || [];
+        renderSessions();
+      }
+
+      async function createSession() {
+        const data = await requestJSON("/api/sessions", { method: "POST", body: { title: "新会话" } });
+        state.sessions = data.sessions || [];
+        state.current = data.session;
+        localStorage.setItem("hermes.activeSession", state.current.id);
+        renderCurrent();
+        return state.current;
+      }
+
+      async function selectSession(sessionId) {
+        if (!sessionId) return;
+        try {
+          const data = await requestJSON(`/api/sessions/${encodeURIComponent(sessionId)}`);
+          state.sessions = data.sessions || state.sessions;
+          state.current = data.session;
+          localStorage.setItem("hermes.activeSession", sessionId);
+          renderCurrent();
+          setChatStatus("已切换会话");
+        } catch (error) {
+          setChatStatus(error.message, "err");
+        }
+      }
+
+      async function ensureSession() {
+        if (state.current) return state.current;
+        if (state.sessions.length) {
+          await selectSession(state.sessions[0].id);
+          return state.current;
+        }
+        return createSession();
+      }
+
+      function applySessionPayload(data) {
+        state.current = data.session || state.current;
+        state.sessions = data.sessions || state.sessions;
+        if (state.current) {
+          localStorage.setItem("hermes.activeSession", state.current.id);
+        }
+        renderCurrent();
+      }
+
+      async function playAudio(url) {
+        if (!url) return;
+        if (state.playTarget === "pi") {
+          try {
+            const data = await requestJSON("/api/pi-playback", { method: "POST", body: { audio_url: url } });
+            setChatStatus(`已发送到树莓派播放：${data.player || "播放器"}`, "ok");
+          } catch (error) {
+            setChatStatus(`树莓派播放失败：${error.message}`, "err");
+          }
+          return;
+        }
+        new Audio(url).play().catch(() => {});
+      }
+
+      async function sendText(event) {
+        event.preventDefault();
+        const message = els.textInput.value.trim();
+        if (!message || state.busy) return;
+
+        await ensureSession();
+        state.busy = true;
+        els.sendText.disabled = true;
+        els.textInput.disabled = true;
+        setIdleVoiceControls();
+        setBadge(els.chatBadge, "生成中");
+        setChatStatus("小七正在回复。");
+
+        try {
+          const data = await requestJSON("/api/chat", {
+            method: "POST",
+            body: {
+              session_id: state.current.id,
+              message,
+              speak: els.speakReply.checked,
+            },
+          });
+          els.textInput.value = "";
+          applySessionPayload(data);
+          playAudio(data.audio_url);
+          setBadge(els.chatBadge, "完成", "ok");
+          setChatStatus("回复已保存到当前会话。", "ok");
+        } catch (error) {
+          setBadge(els.chatBadge, "失败", "err");
+          setChatStatus(error.message, "err");
+        } finally {
+          state.busy = false;
+          els.sendText.disabled = false;
+          els.textInput.disabled = false;
+          setIdleVoiceControls();
+          els.textInput.focus();
+        }
+      }
+
+      function getRecorderOptions() {
+        if (!window.MediaRecorder) return null;
+        const choices = [
+          ["audio/webm;codecs=opus", "recording.webm"],
+          ["audio/webm", "recording.webm"],
+          ["audio/mp4", "recording.m4a"],
+          ["audio/ogg;codecs=opus", "recording.ogg"],
+        ];
+        for (const [mimeType, filename] of choices) {
+          if (MediaRecorder.isTypeSupported(mimeType)) {
+            return { options: { mimeType }, mimeType, filename };
+          }
+        }
+        return { options: {}, mimeType: "", filename: "recording.webm" };
+      }
+
+      function resetRecordingControls() {
+        clearTimeout(timer);
+        clearInterval(progress);
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+        }
+        state.busy = false;
+        recordingMode = "";
+        setIdleVoiceControls();
+        stopPending = false;
+        submitted = false;
+        recognition = undefined;
+        recorder = undefined;
+        stream = undefined;
+      }
+
+      function maybeFinishRecording() {
+        if (!stopPending || submitted) return;
+        if (!recognitionDone || !recorderDone) return;
+        finishRecording();
+      }
+
+      async function finishRecording() {
+        if (submitted) return;
+        submitted = true;
+        els.record.disabled = true;
+        els.stop.disabled = true;
+
+        if (browserTranscript) {
+          await submitTranscript(activeDuration);
+          return;
+        }
+
+        if (chunks.length && canUseBackendStt()) {
+          await submitRecording(activeDuration);
+          return;
+        }
+
+        setBadge(els.voiceBadge, "无语音", "err");
+        setVoiceStatus("没有识别到语音，或后端转写尚未就绪。", "err");
+        resetRecordingControls();
+      }
+
+      async function startRecording() {
+        if (state.busy) return;
+        await ensureSession();
+        if (!voiceAvailable()) {
+          throw new Error("当前浏览器和后端转写都不可用");
+        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("当前浏览器不支持麦克风录音");
+        }
+
+        state.busy = true;
+        recordingMode = "browser";
+        activeDuration = state.duration;
+        chunks = [];
+        browserTranscript = "";
+        submitted = false;
+        stopPending = false;
+        recognitionDone = true;
+        recorderDone = true;
+        els.bar.style.width = "0%";
+        els.transcriptPreview.textContent = "正在等待语音。";
+
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        if (SpeechRecognition) {
+          recognitionDone = false;
+          recognition = new SpeechRecognition();
+          recognition.lang = "zh-CN";
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.addEventListener("result", (event) => {
+            let text = "";
+            for (let i = 0; i < event.results.length; i += 1) {
+              text += event.results[i][0].transcript;
+            }
+            browserTranscript = text.trim();
+            els.transcriptPreview.textContent = browserTranscript || "正在识别。";
+          });
+          recognition.addEventListener("end", () => {
+            recognitionDone = true;
+            maybeFinishRecording();
+          });
+          recognition.addEventListener("error", () => {
+            recognitionDone = true;
+            maybeFinishRecording();
+          });
+          recognition.start();
+        }
+
+        const recorderConfig = getRecorderOptions();
+        if (recorderConfig) {
+          recorderDone = false;
+          recorder = new MediaRecorder(stream, recorderConfig.options);
+          recordingMimeType = recorder.mimeType || recorderConfig.mimeType || "audio/webm";
+          recordingFilename = recorderConfig.filename;
+          recorder.addEventListener("dataavailable", (event) => {
+            if (event.data.size > 0) chunks.push(event.data);
+          });
+          recorder.addEventListener("stop", () => {
+            recorderDone = true;
+            maybeFinishRecording();
+          });
+          recorder.start();
+        } else if (!SpeechRecognition) {
+          throw new Error("当前浏览器不支持录音上传");
+        }
+
+        startedAt = Date.now();
+        els.record.disabled = true;
+        els.piRecord.disabled = true;
+        els.stop.disabled = false;
+        setBadge(els.voiceBadge, "录音中");
+        setVoiceStatus(`最长 ${activeDuration} 秒，说完后可以手动停止。`);
+
+        timer = setTimeout(stopRecording, activeDuration * 1000);
+        progress = setInterval(() => {
+          const elapsed = Math.max(0, (Date.now() - startedAt) / 1000);
+          els.bar.style.width = `${Math.min(100, (elapsed / activeDuration) * 100)}%`;
+          setVoiceStatus(`录音中 ${Math.floor(elapsed)}s / ${activeDuration}s`);
+        }, 150);
+      }
+
+      function stopRecording() {
+        if (recordingMode === "pi") {
+          stopPiRecording().catch((error) => {
+            setBadge(els.voiceBadge, "失败", "err");
+            setVoiceStatus(error.message, "err");
+            finishPiRecording();
+          });
+          return;
+        }
+
+        if (stopPending) return;
+        stopPending = true;
+        clearTimeout(timer);
+        clearInterval(progress);
+        const elapsed = startedAt ? Math.max(0, (Date.now() - startedAt) / 1000) : 0;
+        els.bar.style.width = `${Math.min(100, (elapsed / activeDuration) * 100)}%`;
+        els.stop.disabled = true;
+        els.record.disabled = true;
+        setBadge(els.voiceBadge, "处理中");
+        setVoiceStatus("正在整理录音和转写。");
+
+        try {
+          if (recognition) {
+            recognition.stop();
+          } else {
+            recognitionDone = true;
+          }
+        } catch {
+          recognitionDone = true;
+        }
+
+        try {
+          if (recorder && recorder.state !== "inactive") {
+            recorder.stop();
+          } else {
+            recorderDone = true;
+          }
+        } catch {
+          recorderDone = true;
+        }
+
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+        }
+        maybeFinishRecording();
+      }
+
+      async function submitTranscript(duration) {
+        setVoiceStatus("浏览器转写完成，正在让小七回复。");
+        try {
+          const data = await requestJSON("/api/respond", {
+            method: "POST",
+            body: {
+              duration,
+              transcript: browserTranscript,
+              session_id: state.current.id,
+            },
+          });
+          applySessionPayload(data);
+          playAudio(data.audio_url);
+          els.transcriptPreview.textContent = data.transcript || browserTranscript;
+          setBadge(els.voiceBadge, "完成", "ok");
+          setVoiceStatus("语音回复已保存到当前会话。", "ok");
+        } catch (error) {
+          setBadge(els.voiceBadge, "失败", "err");
+          setVoiceStatus(error.message, "err");
+        } finally {
+          resetRecordingControls();
+        }
+      }
+
+      async function submitRecording(duration) {
+        setVoiceStatus("正在上传录音，由后端转写并生成回复。");
+        const blob = new Blob(chunks, { type: recordingMimeType });
+        const form = new FormData();
+        form.append("duration", String(duration));
+        form.append("session_id", state.current.id);
+        form.append("audio", blob, recordingFilename);
+
+        try {
+          const data = await requestJSON("/api/converse", { method: "POST", body: form });
+          applySessionPayload(data);
+          playAudio(data.audio_url);
+          els.transcriptPreview.textContent = data.transcript || "";
+          setBadge(els.voiceBadge, "完成", "ok");
+          setVoiceStatus("语音回复已保存到当前会话。", "ok");
+        } catch (error) {
+          setBadge(els.voiceBadge, "失败", "err");
+          setVoiceStatus(error.message, "err");
+        } finally {
+          resetRecordingControls();
+        }
+      }
+
+      function finishPiRecording() {
+        clearInterval(progress);
+        clearTimeout(piPoll);
+        piRecordJobId = "";
+        piStopRequested = false;
+        recordingMode = "";
+        state.busy = false;
+        setIdleVoiceControls();
+      }
+
+      function renderPiJob(data) {
+        const elapsed = Math.max(0, Number(data.elapsed || 0));
+        const duration = Math.max(1, Number(data.duration || activeDuration || 1));
+        els.bar.style.width = `${Math.min(100, (elapsed / duration) * 100)}%`;
+
+        if (data.status === "recording") {
+          setBadge(els.voiceBadge, piStopRequested ? "停止中" : "智能助手录音中");
+          setVoiceStatus(
+            piStopRequested
+              ? "正在停止智能助手录音。"
+              : `智能助手录音中 ${elapsed}s / ${duration}s，可手动停止。`,
+          );
+          return false;
+        }
+
+        if (data.status === "processing") {
+          els.stop.disabled = true;
+          setBadge(els.voiceBadge, "处理中");
+          setVoiceStatus("录音完成，正在转写并生成回复。");
+          return false;
+        }
+
+        if (data.status === "complete") {
+          const result = data.result || {};
+          applySessionPayload(result);
+          playAudio(result.audio_url);
+          els.bar.style.width = "100%";
+          els.transcriptPreview.textContent = result.transcript || "";
+          setBadge(els.voiceBadge, "完成", "ok");
+          setVoiceStatus("智能助手录音回复已保存到当前会话。", "ok");
+          finishPiRecording();
+          return true;
+        }
+
+        if (data.status === "error") {
+          const message = data.error || "智能助手录音失败";
+          setBadge(els.voiceBadge, "失败", "err");
+          setVoiceStatus(message, "err");
+          finishPiRecording();
+          return true;
+        }
+
+        return false;
+      }
+
+      async function pollPiRecording() {
+        if (!piRecordJobId) return;
+        try {
+          const data = await requestJSON(`/api/pi-record/${encodeURIComponent(piRecordJobId)}`);
+          if (!renderPiJob(data)) {
+            piPoll = setTimeout(pollPiRecording, data.status === "processing" ? 1500 : 600);
+          }
+        } catch (error) {
+          setBadge(els.voiceBadge, "失败", "err");
+          setVoiceStatus(error.message, "err");
+          finishPiRecording();
+        }
+      }
+
+      async function stopPiRecording() {
+        if (!piRecordJobId || piStopRequested) return;
+        piStopRequested = true;
+        els.stop.disabled = true;
+        setBadge(els.voiceBadge, "停止中");
+        setVoiceStatus("正在停止智能助手录音。");
+        const data = await requestJSON(`/api/pi-record/${encodeURIComponent(piRecordJobId)}/stop`, { method: "POST" });
+        renderPiJob(data);
+      }
+
+      async function startPiRecording() {
+        if (state.busy) return;
+        await ensureSession();
+        if (!canUsePiRecord()) {
+          throw new Error("智能助手录音不可用，请检查 arecord 和后端转写状态");
+        }
+
+        activeDuration = state.duration;
+        state.busy = true;
+        recordingMode = "pi";
+        piRecordJobId = "";
+        piStopRequested = false;
+        clearTimeout(piPoll);
+        clearInterval(progress);
+        els.record.disabled = true;
+        els.piRecord.disabled = true;
+        els.stop.disabled = true;
+        els.bar.style.width = "0%";
+        els.transcriptPreview.textContent = "智能助手麦克风正在录音。";
+        setBadge(els.voiceBadge, "智能助手录音中");
+        setVoiceStatus(`智能助手正在准备录音，最长 ${activeDuration} 秒。`);
+
+        try {
+          const data = await requestJSON("/api/pi-record/start", {
+            method: "POST",
+            body: {
+              duration: activeDuration,
+              session_id: state.current.id,
+            },
+          });
+          piRecordJobId = data.job_id;
+          startedAt = Date.now();
+          els.stop.disabled = false;
+          renderPiJob(data);
+          progress = setInterval(() => {
+            if (!piRecordJobId || piStopRequested) return;
+            const elapsed = Math.max(0, (Date.now() - startedAt) / 1000);
+            els.bar.style.width = `${Math.min(100, (elapsed / activeDuration) * 100)}%`;
+          }, 150);
+          piPoll = setTimeout(pollPiRecording, 600);
+        } catch (error) {
+          setBadge(els.voiceBadge, "失败", "err");
+          setVoiceStatus(error.message, "err");
+          finishPiRecording();
+        }
+      }
+
+      async function saveTitle() {
+        if (!state.current) return;
+        const title = els.sessionTitle.value.trim() || "新会话";
+        try {
+          const data = await requestJSON(`/api/sessions/${encodeURIComponent(state.current.id)}`, {
+            method: "PATCH",
+            body: { title },
+          });
+          applySessionPayload(data);
+          setChatStatus("标题已保存。", "ok");
+        } catch (error) {
+          setChatStatus(error.message, "err");
+        }
+      }
+
+      async function deleteCurrentSession() {
+        if (!state.current) return;
+        if (!confirm("确定删除当前会话？")) return;
+        try {
+          const deletedId = state.current.id;
+          const data = await requestJSON(`/api/sessions/${encodeURIComponent(deletedId)}`, { method: "DELETE" });
+          state.sessions = data.sessions || [];
+          state.current = null;
+          localStorage.removeItem("hermes.activeSession");
+          if (state.sessions.length) {
+            await selectSession(state.sessions[0].id);
+          } else {
+            await createSession();
+          }
+          setChatStatus("会话已删除。", "ok");
+        } catch (error) {
+          setChatStatus(error.message, "err");
+        }
+      }
+
+      async function init() {
+        setDuration(state.duration);
+        els.speakReply.checked = localStorage.getItem("hermes.speakReply") === "true";
+        renderPlayTarget();
+        await loadHealth();
+        await loadSessions();
+
+        const saved = localStorage.getItem("hermes.activeSession");
+        const target = state.sessions.find((session) => session.id === saved) || state.sessions[0];
+        if (target) {
+          await selectSession(target.id);
+        } else {
+          await createSession();
+        }
+        setBadge(els.chatBadge, "待机");
+      }
+
+      els.composer.addEventListener("submit", sendText);
+      els.textInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          els.composer.requestSubmit();
+        }
+      });
+      els.newSession.addEventListener("click", () => createSession().catch((error) => setChatStatus(error.message, "err")));
+      els.saveTitle.addEventListener("click", saveTitle);
+      els.deleteSession.addEventListener("click", deleteCurrentSession);
+      els.refreshHealth.addEventListener("click", loadHealth);
+      els.playBrowser.addEventListener("click", () => setPlayTarget("browser"));
+      els.playPi.addEventListener("click", () => setPlayTarget("pi"));
+      els.record.addEventListener("click", () => {
+        startRecording().catch((error) => {
+          setBadge(els.voiceBadge, "失败", "err");
+          setVoiceStatus(error.message, "err");
+          resetRecordingControls();
+        });
+      });
+      els.piRecord.addEventListener("click", () => {
+        startPiRecording().catch((error) => {
+          setBadge(els.voiceBadge, "失败", "err");
+          setVoiceStatus(error.message, "err");
+          state.busy = false;
+          setIdleVoiceControls();
+        });
+      });
+      els.stop.addEventListener("click", stopRecording);
+      els.durationRange.addEventListener("input", (event) => setDuration(event.target.value));
+      els.durationNumber.addEventListener("change", (event) => setDuration(event.target.value));
+      document.querySelectorAll("[data-seconds]").forEach((button) => {
+        button.addEventListener("click", () => setDuration(button.dataset.seconds));
+      });
+      els.speakReply.addEventListener("change", () => {
+        localStorage.setItem("hermes.speakReply", String(els.speakReply.checked));
+      });
+
+      init().catch((error) => {
+        setBadge(els.connectionBadge, "初始化失败", "err");
+        setChatStatus(error.message, "err");
+      });
+    </script>
+  </body>
+</html>
