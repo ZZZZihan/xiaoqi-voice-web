@@ -12,7 +12,7 @@ Hermes Voice Web is a small self-hosted web console for a Raspberry Pi running H
 - Local reminders and todos for "提醒我..." / "我的提醒", stored on the Raspberry Pi and included in daily briefings.
 - Two voice input options: browser microphone recording and Raspberry Pi microphone recording.
 - Automatic half-duplex call mode: click once, speak naturally, pause to submit, hear the reply, and continue without clicking again.
-- Browser voice input uses browser STT first, then backend STT fallback when available.
+- Browser voice input records locally and prefers backend STT when it is ready; browser speech recognition remains available for endpointing and transcript fallback.
 - Raspberry Pi voice input records on the server with `arecord`, then uses backend STT.
 - Edge TTS playback from Hermes audio cache.
 - Reply playback target toggle: play generated replies in the browser or on the Raspberry Pi speaker.
@@ -46,11 +46,13 @@ HERMES_AGENT=/home/pi/.hermes/hermes-agent \
 scripts/run-voice-web.sh
 ```
 
-With HTTPS certs in `certs/key.pem` and `certs/cert.pem`, the script enables TLS automatically. The current local deployment runs plain HTTP and is reachable at:
+With HTTPS certs in `certs/key.pem` and `certs/cert.pem`, the script enables TLS automatically. The current trusted LAN deployment is reachable at:
 
 ```text
-http://192.168.5.12:8787
+https://pi5.local:8787/
 ```
+
+The current-IP fallback is `https://192.168.5.12:8787/`. HTTPS provides transport encryption and the browser secure context required for microphone access; it does not add application authentication, so this service must remain limited to a trusted LAN and must not be exposed to the public internet.
 
 Install as a user systemd service on the Pi:
 
@@ -100,13 +102,15 @@ The browser call mode is deliberately half-duplex for the first usable version:
 
 No-speech turns restart listening without consuming the error budget. Three consecutive network, model, transcription, or playback failures end the call; microphone permission failures end it immediately. `call-mode.js` owns this state machine and exposes a small dependency-injected interface, while `index.html` provides the browser microphone, Hermes API, playback, and UI adapters.
 
-Browser microphone access requires a secure context. The current Pi service is plain HTTP, so direct access through `http://192.168.5.12:8787` may display the page but modern browsers can refuse the microphone. For a computer on the same network, use a localhost SSH tunnel:
+Browser microphone access requires a secure context. The Raspberry Pi now serves the phone-facing application through dedicated LAN HTTPS at:
 
-```bash
-ssh -N -L 18787:127.0.0.1:8787 pi5
+```text
+https://pi5.local:8787/
 ```
 
-Then open `http://localhost:18787`, allow microphone access, and click **开始通话**. A trusted HTTPS deployment is the next step for direct phone/tablet access.
+The current-IP fallback is `https://192.168.5.12:8787/`. A phone must first install and fully trust `docs/trusted-https/xiaoqi-local-ca.cer`; do not bypass a browser certificate warning. Full phone setup, certificate fingerprints, expiry, verification, and one-command rollback are documented in `docs/TRUSTED_HTTPS.md`.
+
+The former `http://localhost` SSH-tunnel workaround is no longer the primary path: port `8787` now speaks TLS and the certificate identifies `pi5.local`/the LAN IP, not `localhost`. Use the direct trusted LAN URL for phone and tablet access.
 
 This version does not include a wake word, full-duplex echo cancellation, or barge-in while XiaoQi is speaking. Those are later-stage latency and audio-pipeline improvements, not hidden claims of the basic mode.
 
@@ -169,26 +173,37 @@ node --test tests/test_call_mode.js
 
 The tests mock Hermes chat/TTS where needed, so they validate the web app without calling external model providers.
 
+To prepare a checksummed deployment bundle locally without contacting or changing the Raspberry Pi:
+
+```bash
+scripts/build-deployment-bundle.sh
+```
+
+The command writes a timestamped directory, tar archive, and archive checksum under `dist/`. The bundle contains the runtime files, both service scripts, `README.md`, `BUILD-INFO.txt`, and `SHA256SUMS` for offline verification.
+
 ## Deployment Checklist
 
-1. Copy `server.py`, `index.html`, `call-mode.js`, `requirements.txt`, and `scripts/run-voice-web.sh` to the Pi app directory.
+1. Copy `app.css`, `ui-motion.js`, `call-mode.js`, `server.py`, `requirements.txt`, and `scripts/run-voice-web.sh` first. Do not replace `index.html` yet; the running process does not know the new asset routes until restart.
 2. Confirm Hermes agent is installed and `HERMES_HOME` / `HERMES_AGENT` point to it.
-3. Start the app with `scripts/run-voice-web.sh`.
-4. Open `/health` and verify:
+3. For an existing installation, run `systemctl --user restart hermes-voice-web.service`, then require `systemctl --user is-active hermes-voice-web.service` to return `active`. Do not rely on `enable --now` to restart an already-active service.
+4. Copy `index.html` last, then verify `/`, `/app.css`, and `/ui-motion.js` return 200 with the expected MIME types, `Cache-Control: no-store`, and the deployed file hashes.
+5. Open `/health` and verify:
    - `ok: true`
    - Hermes CLI path is present
    - `tools.tts_tool: true`
    - STT is ready, or browser STT is available for the target browser
-5. Send a text chat request and confirm a saved session.
-6. Send "提醒我明天上午九点交作业" and confirm `/api/reminders` shows the new local reminder.
-7. Submit `/api/respond` and confirm an audio URL.
-8. Submit `/api/converse` when backend STT is expected to work.
-9. Confirm `arecord -l` sees a microphone, then use the `树莓派录音` button or `POST /api/pi-record`.
-10. Open the app from a secure browser context, start automatic call mode, verify silence causes an automatic retry, and verify **挂断** releases the microphone and restores the other controls.
+6. Send a text chat request and confirm a saved session.
+7. Send "提醒我明天上午九点交作业" and confirm `/api/reminders` shows the new local reminder.
+8. Submit `/api/respond` and confirm an audio URL.
+9. Submit `/api/converse` when backend STT is expected to work.
+10. Confirm `arecord -l` sees a microphone, then use the `智能助手录音` button or `POST /api/pi-record`.
+11. Open the app from a secure browser context, start continuous voice mode, verify silence causes an automatic retry, and verify **结束语音** releases the microphone and restores the other controls.
 
 ## Current Acceptance Status
 
-The Raspberry Pi 5 deployment at `192.168.5.12:8787` now runs the automatic half-duplex call implementation from runtime source commit `50763c91ebcc26f0565b1c89159ef5297bf7df2f`. Local tests, remote static/API checks, real Chromium microphone capture, repeated empty-speech recovery, and hangup cleanup passed. Volcengine STT and Edge TTS report ready; the Pi has no connected capture device, so the accepted input/output path is the browser through a localhost SSH tunnel.
+The Raspberry Pi currently serves the redesigned interface over trusted LAN HTTPS, but the deployed stylesheet is an earlier variant and does not include the latest local responsive fixes. Treat the current working tree as a pending release until its complete runtime file set is committed, bundled, deployed, and reverified together.
+
+The Raspberry Pi 5 deployment at `https://pi5.local:8787/` runs the automatic half-duplex call implementation with runtime files derived from commit `50763c91ebcc26f0565b1c89159ef5297bf7df2f` plus later uncommitted interface assets. The 2026-08-31 trusted-LAN-HTTPS rollout verified the certificate chain, hostname and IP SANs, HTTPS assets, `window.isSecureContext`, microphone permission, and a live fake browser audio track without changing the model provider or secret files. A physical phone still requires explicit root-certificate installation and real microphone permission by its owner.
 
 The complete spoken-answer loop is **not yet accepted** because a controlled Hermes request returned Xiaomi MiMo HTTP 401 `Invalid API Key`. The configured credential is `XIAOMI_API_KEY` in `/home/pi/.hermes/.env`; it must be replaced by the user or provider owner, then the service and spoken loop must be reverified. Historical May hardware evidence does not describe the currently connected devices.
 

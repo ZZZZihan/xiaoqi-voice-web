@@ -1,5 +1,41 @@
 # Acceptance Checklist
 
+## 2026-08-31 Trusted LAN HTTPS Rollout
+
+Target: Raspberry Pi 5 at `192.168.5.12`, mDNS name `pi5.local`, app path `/home/pi/.hermes/voice-web`, HTTPS port `8787`.
+
+### Delivered Scope
+
+- Replaced only the Hermes Voice Web user-unit launch command so the existing Uvicorn process serves explicit TLS on port `8787`.
+- Issued a dedicated local-CA server leaf for `pi5.local`, `pi5`, and `192.168.5.12`; the CA private key was never copied to the Pi and was deleted after verification.
+- Preserved the application runtime files, model/provider configuration, and both existing `.env` files unchanged.
+- Added durable public CA artifacts under `docs/trusted-https/` and operating instructions in `docs/TRUSTED_HTTPS.md`.
+
+### Verification Evidence
+
+- Pre-change backup and executable rollback: `/home/pi/.local/state/xiaoqi-https/20260831-112636/`.
+- Staged certificate passed OpenSSL server-purpose verification for both `pi5.local` and `192.168.5.12`; leaf and private key matched.
+- Remote `systemd-analyze --user verify` passed before service replacement.
+- Service became `active/running` at `2026-08-31 11:29:25 CST`, PID `8208`, `NRestarts=0`, and `ExecMainStatus=0` during deployment acceptance.
+- Mac LAN probes returned HTTP 200 with `ssl_verify_result=0` for the page and health endpoint through both the mDNS name and IP address.
+- The served leaf fingerprint matched the staged leaf: `7D:7E:4F:E4:B2:5E:79:C2:3C:84:F4:51:D9:5E:F5:1E:C9:2C:B2:AE:0C:25:EF:62:2A:D7:3C:3E:06:9F:69:0E`.
+- `/`, `/health`, `/call-mode.js`, `/app.css`, and `/ui-motion.js` all returned HTTP 200 over HTTPS; the former plain-HTTP probe returned no page.
+- Real Chromium at a 390 by 844 phone viewport reported `https:`, `window.isSecureContext=true`, `navigator.mediaDevices` present, `getUserMedia` available, and an enabled start-call button.
+- Browser microphone permission was `granted`; a fake audio track entered `live` with echo cancellation, noise suppression, and automatic gain control, then was immediately stopped to `ended` without recording the user or invoking the model.
+- Runtime-file and `.env` hash checks passed after restart; the CA private key was absent from the Pi.
+- Local regression remained green after the transport/documentation rollout: `python3 -m pytest -q` passed `44` tests and `node --test tests/test_call_mode.js` passed `6` tests; `git diff --check` also passed.
+
+### Remaining User-Side Gate
+
+- Server-side trusted-HTTPS and secure-context acceptance is complete against the dedicated CA.
+- Physical-phone acceptance is pending the phone owner's security actions: install `docs/trusted-https/xiaoqi-local-ca.cer`, enable SSL/TLS trust, open `https://pi5.local:8787/`, grant real microphone permission, and confirm listening. A certificate warning is a failure, not an accepted bypass.
+- This rollout changes transport trust only; it does not add application authentication or resolve the independently documented dialogue-provider credential failure.
+
+### Rollback
+
+- Run `ssh pi@192.168.5.12 '/home/pi/.local/state/xiaoqi-https/20260831-112636/rollback-trusted-https.sh'` to snapshot the active TLS state and restore the original HTTP unit plus old certificate/key.
+- Remove `XiaoQi LAN HTTPS Root 2026-08-31` separately from the phone trust store after rollback.
+
 ## 2026-08-30 Automatic Call Mode Rollout
 
 Target: Raspberry Pi 5 at `192.168.5.12`, SSH alias `pi5`, app path `/home/pi/.hermes/voice-web`, HTTP port `8787`.
