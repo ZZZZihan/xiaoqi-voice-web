@@ -95,6 +95,7 @@ COMMAND_DENIED_MARKERS = (
 HERMES_RUNTIME_NOTICE_MARKERS = (
     "Reached maximum iterations",
     "Requesting summary",
+    "tirith security scanner enabled but not available",
 )
 WEATHER_QUERY_MARKERS = (
     "天气",
@@ -2137,7 +2138,7 @@ def _looks_like_denied_command_output(output: str) -> bool:
 
 
 def _is_hermes_runtime_notice(line: str) -> bool:
-    return line.startswith("⚠️") and any(marker in line for marker in HERMES_RUNTIME_NOTICE_MARKERS)
+    return line.startswith("⚠") and any(marker in line for marker in HERMES_RUNTIME_NOTICE_MARKERS)
 
 
 class WeatherLocationRequired(Exception):

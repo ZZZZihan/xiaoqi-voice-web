@@ -230,6 +230,16 @@ def test_clean_reply_removes_hermes_runtime_notice():
     assert "maximum iterations" not in reply
 
 
+def test_clean_reply_removes_hermes_v021_tirith_notice():
+    raw = """⚠ tirith security scanner enabled but not available — command scanning will use pattern matching only
+旁路Hermes正常"""
+
+    reply = server._clean_reply(raw)
+
+    assert reply == "旁路Hermes正常"
+    assert "tirith security scanner" not in reply
+
+
 def test_plain_speech_reply_strips_common_markdown():
     raw = """同学你好！
 **当前：** 阴天，气温 30°C
