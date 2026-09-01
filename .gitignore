@@ -4,6 +4,13 @@ __pycache__/
 .playwright-cli/
 .venv/
 .DS_Store
+.env
+.env.*
+!.env.example
+certs/key.pem
+certs/*.key
 server.log
 sessions.json
 *.tmp
+dist/
+output/playwright/
