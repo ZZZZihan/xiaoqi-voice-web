@@ -201,7 +201,7 @@ The command writes a timestamped directory, tar archive, and archive checksum un
 
 ## Current Acceptance Status
 
-The Raspberry Pi currently serves the redesigned interface over trusted LAN HTTPS, but the deployed stylesheet is an earlier variant and does not include the latest committed responsive fixes. A clean, checksummed release has been prepared locally and remains pending deployment and post-deployment verification.
+The Raspberry Pi now serves the complete checksummed release from source commit `47f337d0b5ab40376b0474d73af72a8c2490c5e0` over trusted LAN HTTPS. Runtime and documentation file hashes match the verified release bundle, including the latest responsive stylesheet fixes.
 
 The 2026-08-31 trusted-LAN-HTTPS rollout verified the certificate chain, hostname and IP SANs, HTTPS assets, `window.isSecureContext`, microphone permission, and a live fake browser audio track. A physical phone still requires explicit root-certificate installation and real microphone permission by its owner.
 

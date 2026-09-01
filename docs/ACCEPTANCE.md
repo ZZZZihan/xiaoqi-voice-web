@@ -1,5 +1,40 @@
 # Acceptance Checklist
 
+## 2026-09-01 Checksummed Application Release
+
+Target: Raspberry Pi 5 at `192.168.5.12`, mDNS name `pi5.local`, app path `/home/pi/.hermes/voice-web`, HTTPS port `8787`.
+
+### Delivered Scope
+
+- Deployed the complete application release built from clean source commit `47f337d0b5ab40376b0474d73af72a8c2490c5e0`.
+- Deployed `server.py`, `index.html`, `app.css`, `call-mode.js`, `ui-motion.js`, requirements, service scripts, HTTPS documentation, and public CA artifacts from one verified bundle.
+- Preserved `/home/pi/.hermes/.env`, sessions, reminders, audio cache, and the HTTPS server private key.
+- Created a restricted pre-deployment backup and executable rollback at `/home/pi/.local/state/xiaoqi-release/20260901-172924/`.
+
+### Verification Evidence
+
+- Local regression passed `45` Python tests and `6` call-mode Node tests; Python, JavaScript, shell syntax, and `git diff --check` passed.
+- The release archive and every bundled file passed SHA-256 verification before staging on the Pi.
+- All deployed runtime, documentation, and public-CA hashes matched the staged release.
+- `hermes-voice-web.service` restarted `active/running` with `NRestarts=0` and `ExecMainStatus=0`.
+- Trusted HTTPS returned HTTP 200 with certificate verification result 0 for `/`, `/health`, `/call-mode.js`, `/app.css`, and `/ui-motion.js`; MIME types were correct.
+- OpenSSL hostname and chain verification for `pi5.local` returned `Verification: OK` and `Verify return code: 0`.
+- `/health` reported `provider=zai`, `model=glm-5.1`; a post-restart `/api/chat` request succeeded and its diagnostic session was removed.
+- A deployed-browser check at a 390 by 844 viewport reported `window.isSecureContext=true`, microphone API availability, an enabled start control, transition to `正在听，请直接说话`, successful hangup UI cleanup, no failed network responses, and no console errors.
+- A 1440 by 320 short-desktop check confirmed the composer was visible and scroll-reachable; a 1000 by 900 reduced-motion check confirmed the motion preference and UI kit were active.
+- Post-deployment `/api/respond` and synthetic-audio `/api/converse` checks succeeded. The latter transcribed `最终不属语音链路，正常。`, produced a GLM reply, and returned a valid `audio/ogg` file of `29224` bytes.
+- Diagnostic sessions, downloaded test files, and generated diagnostic audio were removed after verification.
+
+### Remaining User-Side Gate
+
+- A physical phone must still install and fully trust the local CA, grant real microphone permission, complete two consecutive spoken turns, hear both replies, end voice mode, and confirm the system microphone indicator disappears.
+- The automated browser check verified the page state and controls but did not claim direct observation of the browser's internal media-track `ended` state.
+- Raspberry Pi-native microphone and speaker acceptance remains separate because current Pi audio hardware has not been revalidated.
+
+### Rollback
+
+Run `/home/pi/.local/state/xiaoqi-release/20260901-172924/rollback-release.sh` on the Pi to restore the complete previous runtime set and restart the service. This rollback does not change the GLM provider configuration or HTTPS certificates.
+
 ## 2026-09-01 GLM China Provider Migration
 
 Target: Raspberry Pi 5 at `192.168.5.12`, Hermes home `/home/pi/.hermes`, web service `hermes-voice-web.service`.
