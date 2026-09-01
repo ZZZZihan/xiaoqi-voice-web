@@ -22,6 +22,20 @@ def configure_tmp_app(monkeypatch, tmp_path):
     return TestClient(server.app), audio_cache
 
 
+def css_block(source: str, header: str) -> str:
+    header_start = source.index(header)
+    block_start = source.index("{", header_start + len(header))
+    depth = 1
+    for index in range(block_start + 1, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[block_start + 1 : index]
+    raise AssertionError(f"Unclosed CSS block: {header}")
+
+
 def test_session_crud(monkeypatch, tmp_path):
     client, _ = configure_tmp_app(monkeypatch, tmp_path)
 
@@ -87,13 +101,26 @@ def test_index_uses_xiaoqi_brand_and_visible_playback_controls(monkeypatch, tmp_
     assert "Hermes 控制台" not in response.text
     assert "生活助手小七" in response.text
     assert "浏览器播放语音回复" in response.text
-    assert "智能助手回复" in response.text
+    assert "小七音箱播放语音回复" in response.text
     assert "智能助手录音" in response.text
     assert "树莓派录音" not in response.text
-    assert "自动电话模式" in response.text
-    assert "开始通话" in response.text
-    assert "挂断" in response.text
+    assert "语音模式" in response.text
+    assert "开启语音" in response.text
+    assert "结束语音" in response.text
+    assert "自动电话模式" not in response.text
+    assert "开始通话" not in response.text
+    assert "挂断" not in response.text
+    assert '<link rel="stylesheet" href="/app.css" />' in response.text
     assert '<script src="/call-mode.js"></script>' in response.text
+    assert '<script src="/ui-motion.js"></script>' in response.text
+    assert response.text.index('<script src="/call-mode.js"></script>') < response.text.index(
+        '<script src="/ui-motion.js"></script>'
+    )
+    assert "http://localhost:18787" not in response.text
+    assert "https://pi5.local:8787/" in response.text
+    assert "浏览器转写不可用，继续使用后端转写。" in response.text
+    assert response.text.index('class="side-stack"') < response.text.index('class="panel chat-panel"')
+    assert response.text.index('class="panel chat-panel"') < response.text.index('class="panel sidebar"')
 
 
 def test_call_mode_asset_is_served_without_cache(monkeypatch, tmp_path):
@@ -106,6 +133,63 @@ def test_call_mode_asset_is_served_without_cache(monkeypatch, tmp_path):
     assert response.headers["content-type"].startswith("text/javascript")
     assert "createCallController" in response.text
     assert 'LISTENING: "listening"' in response.text
+
+
+def test_design_assets_are_served_without_cache(monkeypatch, tmp_path):
+    client, _ = configure_tmp_app(monkeypatch, tmp_path)
+
+    css = client.get("/app.css")
+    motion = client.get("/ui-motion.js")
+
+    assert css.status_code == 200
+    assert css.headers["cache-control"] == "no-store"
+    assert css.headers["content-type"].startswith("text/css")
+    assert "--accent:" in css.text
+    assert "color-scheme: light" in css.text
+    assert "#0071e3" in css.text
+    assert "prefers-reduced-motion" in css.text
+
+    assert motion.status_code == 200
+    assert motion.headers["cache-control"] == "no-store"
+    assert motion.headers["content-type"].startswith("text/javascript")
+    assert "XiaoQiUI" in motion.text
+    assert "reduceMotion" in motion.text
+
+
+def test_tablet_two_column_shell_keeps_voice_area_in_one_column():
+    css = server.APP_CSS_FILE.read_text(encoding="utf-8")
+    tablet_shell_layout = css_block(css, "@media (max-width: 1120px)")
+    shell = css_block(tablet_shell_layout, ".shell")
+    tablet = css_block(css, "@media (min-width: 821px) and (max-width: 1120px)")
+    side_stack = css_block(tablet, ".side-stack")
+
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in shell
+    assert "grid-template-columns: minmax(0, 1fr);" in side_stack
+    assert "grid-auto-flow: row;" in side_stack
+
+
+def test_short_desktop_sidebar_can_scroll_expanded_session_settings():
+    css = server.APP_CSS_FILE.read_text(encoding="utf-8")
+    sidebar = css_block(css, ".sidebar")
+    session_list = css_block(css, ".session-list")
+    session_tools = css_block(css[css.index(".session-list") :], ".session-tools")
+
+    assert "max-height: calc(100svh - 112px);" in sidebar
+    assert "overflow-y: auto;" in sidebar
+    assert "overscroll-behavior-y: contain;" in sidebar
+    assert "min-height: 0;" in session_list
+    assert "overflow: auto;" in session_list
+    assert "flex: 0 0 auto;" in session_tools
+
+
+def test_short_desktop_chat_composer_remains_reachable():
+    css = server.APP_CSS_FILE.read_text(encoding="utf-8")
+    short_desktop = css_block(css, "@media (min-width: 1121px) and (max-height: 640px)")
+    chat_panel = css_block(short_desktop, ".chat-panel")
+
+    assert "min-height: 360px;" in chat_panel
+    assert "max-height: none;" in chat_panel
+    assert "grid-template-rows: auto minmax(0, 1fr) auto;" in chat_panel
 
 
 def test_chat_saves_exchange(monkeypatch, tmp_path):
@@ -487,6 +571,15 @@ def test_voice_response_creates_audio_url(monkeypatch, tmp_path):
     audio = client.get(data["audio_url"])
     assert audio.status_code == 200
     assert audio.content == b"OggS test"
+
+
+def test_audio_route_rejects_directories(monkeypatch, tmp_path):
+    client, audio_cache = configure_tmp_app(monkeypatch, tmp_path)
+    (audio_cache / "not-a-file").mkdir()
+
+    response = client.get("/audio/not-a-file")
+
+    assert response.status_code == 404
 
 
 def test_voice_response_returns_plain_text_for_tts(monkeypatch, tmp_path):
@@ -884,5 +977,6 @@ def test_local_stt_status_requires_real_model_file(monkeypatch, tmp_path):
 
 def test_audio_route_rejects_traversal(monkeypatch, tmp_path):
     client, _ = configure_tmp_app(monkeypatch, tmp_path)
-    response = client.get("/audio/../../etc/passwd")
+    response = client.get("/audio/%2e%2e/%2e%2e/etc/passwd")
     assert response.status_code == 404
+    assert response.json()["detail"] == "not found"

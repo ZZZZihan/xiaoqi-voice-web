@@ -35,6 +35,8 @@ SESSIONS_FILE = HERMES_HOME / "voice-web" / "sessions.json"
 REMINDERS_FILE = HERMES_HOME / "voice-web" / "reminders.json"
 INDEX_FILE = Path(__file__).with_name("index.html")
 CALL_MODE_FILE = Path(__file__).with_name("call-mode.js")
+APP_CSS_FILE = Path(__file__).with_name("app.css")
+UI_MOTION_FILE = Path(__file__).with_name("ui-motion.js")
 HERMES_TIMEOUT = int(os.environ.get("VOICE_WEB_HERMES_TIMEOUT", "300"))
 STT_TIMEOUT = int(os.environ.get("VOICE_WEB_STT_TIMEOUT", "180"))
 MAX_MESSAGE_CHARS = int(os.environ.get("VOICE_WEB_MAX_MESSAGE_CHARS", "12000"))
@@ -3221,6 +3223,24 @@ async def call_mode_asset() -> FileResponse:
     )
 
 
+@app.get("/app.css", response_class=FileResponse)
+async def app_css_asset() -> FileResponse:
+    return FileResponse(
+        APP_CSS_FILE,
+        media_type="text/css; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/ui-motion.js", response_class=FileResponse)
+async def ui_motion_asset() -> FileResponse:
+    return FileResponse(
+        UI_MOTION_FILE,
+        media_type="text/javascript; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.get("/api/sessions")
 async def sessions() -> dict[str, Any]:
     return {"sessions": _list_sessions()}
@@ -3369,7 +3389,7 @@ async def audio(path: str) -> FileResponse:
         full.relative_to(AUDIO_CACHE.resolve())
     except ValueError:
         raise HTTPException(status_code=404, detail="not found")
-    if not full.exists():
+    if not full.is_file():
         raise HTTPException(status_code=404, detail="not found")
     return FileResponse(full)
 

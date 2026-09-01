@@ -31,7 +31,7 @@
   }
 
   function abortError() {
-    const error = new Error("通话已结束");
+    const error = new Error("语音模式已结束");
     error.name = "AbortError";
     error.code = "aborted";
     return error;
@@ -143,7 +143,7 @@
           let callError =
             error instanceof CallModeError
               ? error
-              : new CallModeError(error && error.message ? error.message : "电话模式发生未知错误", "call_error", {
+              : new CallModeError(error && error.message ? error.message : "语音模式发生未知错误", "call_error", {
                   cause: error,
                 });
           const noSpeech = isNoSpeechError(callError);
