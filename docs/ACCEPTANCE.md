@@ -1,5 +1,38 @@
 # Acceptance Checklist
 
+## 2026-09-01 GLM China Provider Migration
+
+Target: Raspberry Pi 5 at `192.168.5.12`, Hermes home `/home/pi/.hermes`, web service `hermes-voice-web.service`.
+
+### Delivered Scope
+
+- Migrated the Hermes default provider from `xiaomi / mimo-v2.5-pro` to `zai / glm-5.1`.
+- Configured the GLM China Coding Plan endpoint: `https://open.bigmodel.cn/api/coding/paas/v4`.
+- Stored the credential only as `GLM_API_KEY` in `/home/pi/.hermes/.env`; the value was never printed into project files or acceptance output.
+- Set the Hermes model context length to `200000`, matching the installed Hermes metadata for `glm-5.1`.
+- Preserved the former provider configuration in a restricted rollback backup at `/home/pi/.local/state/xiaoqi-glm/20260901-172039/`.
+
+### Verification Evidence
+
+- The installed Hermes version was `v0.12.0`; its built-in `zai` provider recognizes `GLM_API_KEY`, the China Coding Plan endpoint, and `glm-5.1`.
+- Controlled endpoint probes returned HTTP 200 for both the China and global Coding Plan endpoints; the active configuration intentionally uses the China endpoint.
+- A direct quiet Hermes request returned exactly `GLM连接正常`.
+- After service restart, `hermes-voice-web.service` was `active/running`, `NRestarts=0`, and `/health` reported `provider=zai`, `model=glm-5.1`.
+- A real `/api/chat` request returned `小七GLM文本链路正常`; its diagnostic session was deleted.
+- A real `/api/respond` request returned `小七GLM语音回复正常` and a downloadable `audio/ogg` response of `28419` bytes.
+- A synthetic speech `/api/converse` request transcribed `今天天气很好。`, generated a GLM reply, and returned a downloadable `audio/ogg` response of `121801` bytes.
+- The `/api/converse` check verified the complete backend chain: Volcengine STT -> Hermes GLM -> Edge TTS.
+- All diagnostic sessions, downloaded temporary files, and generated diagnostic audio were removed after verification.
+
+### Remaining User-Side Gate
+
+- Physical-phone acceptance is still pending: install and fully trust the local CA, grant real microphone permission, complete two consecutive spoken turns, hear both replies, end voice mode, and confirm the microphone indicator disappears.
+- Raspberry Pi-native microphone and speaker acceptance remains separate because the currently connected Pi audio hardware has not been revalidated.
+
+### Rollback
+
+Run `/home/pi/.local/state/xiaoqi-glm/20260901-172039/rollback-glm-provider.sh` on the Pi to restore the previous Hermes `.env` and `config.yaml`, then restart the web service.
+
 ## 2026-08-31 Trusted LAN HTTPS Rollout
 
 Target: Raspberry Pi 5 at `192.168.5.12`, mDNS name `pi5.local`, app path `/home/pi/.hermes/voice-web`, HTTPS port `8787`.
@@ -64,9 +97,9 @@ Target: Raspberry Pi 5 at `192.168.5.12`, SSH alias `pi5`, app path `/home/pi/.h
 - A final remote hangup check returned `state=通话已结束`, `preview=通话已结束。`, start enabled, and hangup disabled.
 - Isolated TTS acceptance passed: a controlled local-response request returned HTTP 200 and a retrievable Ogg audio URL. The temporary web session and generated audio were removed from active storage and retained only with the diagnostic backup evidence.
 
-### Open Acceptance Gates
+### Open Acceptance Gates at That Rollout
 
-- **End-to-end Hermes answer is blocked, not accepted.** A controlled Hermes request returned Xiaomi MiMo HTTP 401 `Invalid API Key`. The configured provider is `xiaomi`, model `mimo-v2.5-pro`; the credential variable is `XIAOMI_API_KEY` in `/home/pi/.hermes/.env`. The value was not read or changed during this rollout.
+- At the time of this rollout, end-to-end Hermes answering was blocked by Xiaomi MiMo HTTP 401 `Invalid API Key`. This historical blocker was resolved by the 2026-09-01 GLM China provider migration documented above.
 - `/health` confirms that the Hermes CLI and provider configuration exist; it does not make an authenticated model request, so `ok: true` does not override the observed 401.
 - The Pi currently has no ALSA capture hardware and no connected USB peripherals. The former `plughw:CARD=Device,DEV=0` microphone and M83 playback device from the May evidence are absent. HDMI appears as a playback candidate, but audible Pi-side playback was not accepted.
 - Direct `http://192.168.5.12:8787` is not a browser secure context. Use the documented localhost SSH tunnel for the basic version; trusted HTTPS is still required for direct mobile/tablet microphone access.

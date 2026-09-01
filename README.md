@@ -201,10 +201,10 @@ The command writes a timestamped directory, tar archive, and archive checksum un
 
 ## Current Acceptance Status
 
-The Raspberry Pi currently serves the redesigned interface over trusted LAN HTTPS, but the deployed stylesheet is an earlier variant and does not include the latest local responsive fixes. Treat the current working tree as a pending release until its complete runtime file set is committed, bundled, deployed, and reverified together.
+The Raspberry Pi currently serves the redesigned interface over trusted LAN HTTPS, but the deployed stylesheet is an earlier variant and does not include the latest committed responsive fixes. A clean, checksummed release has been prepared locally and remains pending deployment and post-deployment verification.
 
-The Raspberry Pi 5 deployment at `https://pi5.local:8787/` runs the automatic half-duplex call implementation with runtime files derived from commit `50763c91ebcc26f0565b1c89159ef5297bf7df2f` plus later uncommitted interface assets. The 2026-08-31 trusted-LAN-HTTPS rollout verified the certificate chain, hostname and IP SANs, HTTPS assets, `window.isSecureContext`, microphone permission, and a live fake browser audio track without changing the model provider or secret files. A physical phone still requires explicit root-certificate installation and real microphone permission by its owner.
+The 2026-08-31 trusted-LAN-HTTPS rollout verified the certificate chain, hostname and IP SANs, HTTPS assets, `window.isSecureContext`, microphone permission, and a live fake browser audio track. A physical phone still requires explicit root-certificate installation and real microphone permission by its owner.
 
-The complete spoken-answer loop is **not yet accepted** because a controlled Hermes request returned Xiaomi MiMo HTTP 401 `Invalid API Key`. The configured credential is `XIAOMI_API_KEY` in `/home/pi/.hermes/.env`; it must be replaced by the user or provider owner, then the service and spoken loop must be reverified. Historical May hardware evidence does not describe the currently connected devices.
+On 2026-09-01 the Hermes provider was migrated from Xiaomi MiMo to `zai / glm-5.1` using the GLM China Coding Plan endpoint. A direct Hermes request, `/api/chat`, `/api/respond`, and a synthetic-audio `/api/converse` request all succeeded; the latter verified Volcengine STT -> GLM -> Edge TTS and returned a valid Ogg reply. Diagnostic sessions and generated audio were removed. The remaining end-to-end gate is a real two-turn phone conversation and microphone-release confirmation by the phone owner. Historical May hardware evidence does not describe the currently connected Pi audio devices.
 
 See `docs/ACCEPTANCE.md` for the latest concrete checklist and command evidence.
