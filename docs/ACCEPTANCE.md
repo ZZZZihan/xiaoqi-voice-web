@@ -25,11 +25,12 @@ Target: Raspberry Pi 5 at `192.168.5.12`, mDNS name `pi5.local`, app path `/home
 - Post-deployment `/api/respond` and synthetic-audio `/api/converse` checks succeeded. The latter transcribed `最终不属语音链路，正常。`, produced a GLM reply, and returned a valid `audio/ogg` file of `29224` bytes.
 - Diagnostic sessions, downloaded test files, and generated diagnostic audio were removed after verification.
 
-### Remaining User-Side Gate
+### Physical Phone Acceptance
 
-- A physical phone must still install and fully trust the local CA, grant real microphone permission, complete two consecutive spoken turns, hear both replies, end voice mode, and confirm the system microphone indicator disappears.
-- The automated browser check verified the page state and controls but did not claim direct observation of the browser's internal media-track `ended` state.
-- Raspberry Pi-native microphone and speaker acceptance remains separate because current Pi audio hardware has not been revalidated.
+- The phone owner confirmed the dedicated local CA was trusted and the final URL opened without a certificate warning.
+- Real microphone permission was granted and two consecutive spoken turns were recognized, answered by GLM, and played audibly on the phone.
+- After ending voice mode, the phone's system microphone indicator disappeared and the page controls returned to their idle state.
+- This closes browser/phone end-to-end acceptance. Raspberry Pi-native microphone and speaker acceptance remains separate because current Pi audio hardware has not been revalidated.
 
 ### Rollback
 
