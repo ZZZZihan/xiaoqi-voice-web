@@ -51,6 +51,7 @@ PI_RECORD_RATE = int(os.environ.get("VOICE_WEB_PI_RECORD_RATE", "16000"))
 PI_RECORD_CHANNELS = int(os.environ.get("VOICE_WEB_PI_RECORD_CHANNELS", "1"))
 PI_PLAYBACK_COMMAND = os.environ.get("VOICE_WEB_PI_PLAYBACK_COMMAND", "").strip()
 PI_PLAYBACK_DEVICE = os.environ.get("VOICE_WEB_PI_PLAYBACK_DEVICE", "").strip()
+PI_PLAYBACK_TIMEOUT = int(os.environ.get("VOICE_WEB_PI_PLAYBACK_TIMEOUT", "180"))
 HERMES_MAX_TURNS = max(1, int(os.environ.get("VOICE_WEB_HERMES_MAX_TURNS", "3")))
 VOLCENGINE_ASR_API_VERSION = os.environ.get("VOLCENGINE_ASR_API_VERSION", "v2").strip().lower()
 VOLCENGINE_ASR_V2_WS_URL = os.environ.get(
@@ -1331,7 +1332,7 @@ def _audio_cache_path_from_url(audio_url: str) -> Path:
     return full
 
 
-def _play_audio_on_pi(audio_url: str) -> dict[str, Any]:
+def _play_audio_on_pi(audio_url: str, *, wait: bool = False) -> dict[str, Any]:
     audio_path = _audio_cache_path_from_url(audio_url)
     device = _direct_alsa_playback_device()
     if device and shutil.which("ffmpeg") and shutil.which("aplay"):
@@ -1378,17 +1379,39 @@ def _play_audio_on_pi(audio_url: str) -> dict[str, Any]:
             raise HTTPException(status_code=503, detail=f"Could not start local audio playback: {exc}") from exc
 
         def wait_for_playback() -> None:
-            player.wait()
-            if decoder.poll() is None:
-                decoder.terminate()
-            decoder.wait()
+            try:
+                player.wait(timeout=PI_PLAYBACK_TIMEOUT)
+            except subprocess.TimeoutExpired as exc:
+                if player.poll() is None:
+                    player.terminate()
+                if decoder.poll() is None:
+                    decoder.terminate()
+                raise HTTPException(status_code=504, detail="Raspberry Pi audio playback timed out") from exc
+            finally:
+                if decoder.poll() is None:
+                    decoder.terminate()
+                try:
+                    decoder.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    decoder.kill()
+                    decoder.wait()
 
-        threading.Thread(target=wait_for_playback, daemon=True).start()
+        if wait:
+            wait_for_playback()
+        else:
+            def clean_up_playback() -> None:
+                try:
+                    wait_for_playback()
+                except HTTPException:
+                    pass
+
+            threading.Thread(target=clean_up_playback, daemon=True).start()
         return {
             "ok": True,
             "audio_url": audio_url,
             "player": "ffmpeg+aplay",
             "device": device,
+            "completed": wait,
         }
 
     command = _find_pi_playback_command(audio_path)
@@ -1399,7 +1422,7 @@ def _play_audio_on_pi(audio_url: str) -> dict[str, Any]:
         )
 
     try:
-        subprocess.Popen(
+        player = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -1409,10 +1432,19 @@ def _play_audio_on_pi(audio_url: str) -> dict[str, Any]:
     except OSError as exc:
         raise HTTPException(status_code=503, detail=f"Could not start local audio playback: {exc}") from exc
 
+    if wait:
+        try:
+            player.wait(timeout=PI_PLAYBACK_TIMEOUT)
+        except subprocess.TimeoutExpired as exc:
+            if player.poll() is None:
+                player.terminate()
+            raise HTTPException(status_code=504, detail="Raspberry Pi audio playback timed out") from exc
+
     return {
         "ok": True,
         "audio_url": audio_url,
         "player": Path(command[0]).name,
+        "completed": wait,
     }
 
 
@@ -3415,7 +3447,11 @@ async def briefing(request: Request) -> dict[str, Any]:
 @app.post("/api/pi-playback")
 async def pi_playback(request: Request) -> dict[str, Any]:
     body = await _json_body(request)
-    return await asyncio.to_thread(_play_audio_on_pi, str(body.get("audio_url") or ""))
+    return await asyncio.to_thread(
+        _play_audio_on_pi,
+        str(body.get("audio_url") or ""),
+        wait=_is_enabled(body.get("wait"), default=False),
+    )
 
 
 @app.get("/health")

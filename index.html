@@ -24,10 +24,6 @@
           </div>
         </div>
         <div class="top-actions">
-          <div class="playback-choice" role="group" aria-label="语音回复播放位置">
-            <button id="playBrowser" class="secondary" type="button" aria-label="当前浏览器播放语音回复" aria-pressed="true">当前浏览器</button>
-            <button id="playPi" class="secondary" type="button" aria-label="小七音箱播放语音回复" aria-pressed="false">小七音箱</button>
-          </div>
           <button id="refreshHealth" class="icon-button" type="button" aria-label="刷新连接状态" title="刷新状态">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5" />
@@ -51,6 +47,22 @@
             <span id="voiceBadge" class="badge" role="status" aria-live="polite">待机</span>
           </div>
           <div class="panel-body">
+            <div class="device-routing" aria-label="语音输入与输出设备">
+              <div class="device-route">
+                <span class="device-route-label">输入设备</span>
+                <div class="device-choice" role="group" aria-label="语音输入设备">
+                  <button id="inputBrowser" class="secondary" type="button" aria-label="使用当前浏览器麦克风" aria-pressed="true">浏览器麦克风</button>
+                  <button id="inputPi" class="secondary" type="button" aria-label="使用小七树莓派麦克风" aria-pressed="false">小七麦克风</button>
+                </div>
+              </div>
+              <div class="device-route">
+                <span class="device-route-label">输出设备</span>
+                <div class="device-choice" role="group" aria-label="语音回复播放位置">
+                  <button id="playBrowser" class="secondary" type="button" aria-label="当前浏览器播放语音回复" aria-pressed="true">浏览器扬声器</button>
+                  <button id="playPi" class="secondary" type="button" aria-label="小七音箱播放语音回复" aria-pressed="false">小七音箱</button>
+                </div>
+              </div>
+            </div>
             <div class="call-mode">
               <div class="call-mode-head">
                 <div class="call-visual" aria-hidden="true">
@@ -59,7 +71,7 @@
                 <div class="call-copy">
                   <div class="call-title">VOICE MODE</div>
                   <div id="callState" class="call-state" aria-live="polite">轻点开启，直接对小七说话。</div>
-                  <div class="call-note">说完后稍作停顿，小七会回答并自动继续聆听。</div>
+                  <div class="call-note">输入和输出会遵循上方设备选择，回答结束后自动进入下一轮。</div>
                   <div id="voiceHint" class="voice-hint" role="status">正在检测浏览器麦克风。</div>
                 </div>
               </div>
@@ -201,6 +213,8 @@
         durationRange: $("#durationRange"),
         healthRows: $("#healthRows"),
         hangUp: $("#hangUp"),
+        inputBrowser: $("#inputBrowser"),
+        inputPi: $("#inputPi"),
         messages: $("#messages"),
         newSession: $("#newSession"),
         piRecord: $("#piRecord"),
@@ -231,6 +245,7 @@
         health: null,
         healthLoaded: false,
         healthFailed: false,
+        inputTarget: localStorage.getItem("hermes.inputTarget") === "pi" ? "pi" : "browser",
         playTarget: localStorage.getItem("hermes.playTarget") === "pi" ? "pi" : "browser",
         sessions: [],
         duration: Number(localStorage.getItem("hermes.duration") || 60),
@@ -408,6 +423,42 @@
         return Boolean(piPlayback && piPlayback.available);
       }
 
+      function selectedInputAvailable() {
+        return state.inputTarget === "pi" ? canUsePiRecord() : voiceAvailable();
+      }
+
+      function piCallTurnDuration() {
+        return Math.min(8, Math.max(5, Number(state.duration) || 8));
+      }
+
+      function renderInputTarget() {
+        const usePi = state.inputTarget === "pi";
+        els.inputBrowser.classList.toggle("active", !usePi);
+        els.inputPi.classList.toggle("active", usePi);
+        els.inputBrowser.setAttribute("aria-pressed", String(!usePi));
+        els.inputPi.setAttribute("aria-pressed", String(usePi));
+        els.inputBrowser.title = !voiceAvailable() ? "当前浏览器麦克风未就绪" : "连续语音使用当前浏览器麦克风";
+        els.inputPi.title = !canUsePiRecord() ? "小七麦克风未就绪" : "连续语音使用树莓派上的小七麦克风";
+      }
+
+      function setInputTarget(target) {
+        if (target === "pi" && !canUsePiRecord()) {
+          setChatStatus("小七麦克风尚未就绪，输入设备没有切换。", "warn");
+          window.XiaoQiUI?.bump(els.inputPi);
+          return;
+        }
+        if (target !== "pi" && !voiceAvailable()) {
+          setChatStatus("当前浏览器麦克风尚未就绪，输入设备没有切换。", "warn");
+          window.XiaoQiUI?.bump(els.inputBrowser);
+          return;
+        }
+        state.inputTarget = target === "pi" ? "pi" : "browser";
+        localStorage.setItem("hermes.inputTarget", state.inputTarget);
+        renderInputTarget();
+        renderHealth();
+        setChatStatus(state.inputTarget === "pi" ? "输入已切换到小七麦克风。" : "输入已切换到当前浏览器麦克风。", "ok");
+      }
+
       function renderPlayTarget() {
         if (state.health && state.playTarget === "pi" && !canUsePiPlayback()) {
           state.playTarget = "browser";
@@ -452,10 +503,12 @@
         els.record.disabled = locked || !voiceAvailable();
         els.piRecord.disabled = locked || !canUsePiRecord();
         els.stop.disabled = true;
-        els.startCall.disabled = locked || !callController || !voiceAvailable();
+        els.startCall.disabled = locked || !callController || !selectedInputAvailable();
         els.hangUp.disabled = !state.callActive;
         els.durationRange.disabled = locked;
         els.durationNumber.disabled = locked;
+        els.inputBrowser.disabled = locked || state.healthFailed || Boolean(state.health && !voiceAvailable());
+        els.inputPi.disabled = locked || state.healthFailed || Boolean(state.health && !canUsePiRecord());
         els.playBrowser.disabled = locked;
         els.playPi.disabled = locked || state.healthFailed || Boolean(state.health && !canUsePiPlayback());
         document.querySelectorAll("[data-seconds]").forEach((button) => {
@@ -518,7 +571,13 @@
         els.voiceCapability.textContent = `${browserOption}；${piOption}`;
         els.speakReply.checked =
           localStorage.getItem("hermes.speakReply") === "true" && canGenerateSpokenReply();
-        if (!window.isSecureContext) {
+        if (state.inputTarget === "pi" && canUsePiRecord()) {
+          els.voiceHint.className = "voice-hint ok";
+          els.voiceHint.textContent = `连续语音将使用小七麦克风，每轮收音最多 ${piCallTurnDuration()} 秒。`;
+        } else if (state.inputTarget === "pi") {
+          els.voiceHint.className = "voice-hint err";
+          els.voiceHint.textContent = "小七麦克风当前不可用，请刷新设备状态或切回浏览器麦克风。";
+        } else if (!window.isSecureContext) {
           els.voiceHint.className = "voice-hint warn";
           els.voiceHint.textContent =
             "当前页面不是安全上下文，浏览器已禁用麦克风。请打开 https://pi5.local:8787/，或使用证书覆盖的局域网 IP；不要绕过证书警告。";
@@ -535,6 +594,7 @@
           els.voiceHint.className = "voice-hint warn";
           els.voiceHint.textContent = "麦克风可打开，但转写链路尚未就绪。";
         }
+        renderInputTarget();
         renderPlayTarget();
         setIdleVoiceControls();
       }
@@ -735,7 +795,10 @@
         if (state.playTarget === "pi") {
           const data = await requestJSON("/api/pi-playback", {
             method: "POST",
-            body: { audio_url: url },
+            body: {
+              audio_url: url,
+              wait: Boolean(options.waitForCompletion),
+            },
             signal: options.signal,
           });
           setChatStatus(`已发送到树莓派播放：${data.player || "播放器"}`, "ok");
@@ -962,7 +1025,106 @@
         });
       }
 
+      function waitForCallPoll(ms, signal) {
+        return new Promise((resolve, reject) => {
+          if (signal.aborted) {
+            reject(new DOMException("语音模式已结束", "AbortError"));
+            return;
+          }
+          const timeout = setTimeout(() => {
+            signal.removeEventListener("abort", onAbort);
+            resolve();
+          }, ms);
+          const onAbort = () => {
+            clearTimeout(timeout);
+            reject(new DOMException("语音模式已结束", "AbortError"));
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        });
+      }
+
+      function stopPiCallJob(jobId) {
+        if (!jobId) return Promise.resolve();
+        return fetch(`/api/pi-record/${encodeURIComponent(jobId)}/stop`, {
+          method: "POST",
+          keepalive: true,
+        }).catch(() => undefined);
+      }
+
+      async function capturePiCallTurn({ signal }) {
+        if (!canUsePiRecord()) {
+          throw callError("小七麦克风当前不可用", "pi_microphone_unavailable", { fatal: true });
+        }
+        const duration = piCallTurnDuration();
+        const started = await requestJSON("/api/pi-record/start", {
+          method: "POST",
+          body: {
+            duration,
+            session_id: callSessionId,
+          },
+          signal,
+          timeoutMs: 12000,
+        });
+        const jobId = String(started.job_id || "");
+        if (!jobId) {
+          throw callError("小七麦克风没有返回录音任务", "pi_record_job_missing");
+        }
+
+        let stopRequested = false;
+        const requestStop = () => {
+          if (stopRequested) return;
+          stopRequested = true;
+          void stopPiCallJob(jobId);
+        };
+        signal.addEventListener("abort", requestStop, { once: true });
+
+        try {
+          while (!signal.aborted) {
+            const job = await requestJSON(`/api/pi-record/${encodeURIComponent(jobId)}`, {
+              signal,
+              timeoutMs: 12000,
+            });
+            const elapsed = Math.max(0, Number(job.elapsed || 0));
+            els.bar.style.width = `${Math.min(100, (elapsed / duration) * 100)}%`;
+
+            if (job.status === "recording") {
+              els.callState.textContent = "小七麦克风正在听";
+              setVoiceStatus(`正在使用小七麦克风收音 ${elapsed}s / ${duration}s。`);
+            } else if (job.status === "processing") {
+              els.callState.textContent = "已收音，小七正在思考";
+              setVoiceStatus("小七麦克风已关闭，正在转写并生成回复。");
+            } else if (job.status === "complete") {
+              const result = job.result || {};
+              if (!String(result.transcript || "").trim()) {
+                throw callError("没有识别到清晰语音", "no_speech");
+              }
+              return {
+                kind: "pi_reply",
+                data: result,
+                duration: Number(result.duration || duration),
+                sessionId: callSessionId,
+              };
+            } else if (job.status === "error") {
+              const message = String(job.error || "小七麦克风录音失败");
+              if (/no\s+(?:valid\s+)?speech|没有.{0,16}语音|未识别.{0,16}语音/i.test(message)) {
+                throw callError("没有识别到清晰语音", "no_speech");
+              }
+              throw callError(message, "pi_record_failed");
+            }
+
+            await waitForCallPoll(job.status === "processing" ? 1000 : 500, signal);
+          }
+          throw new DOMException("语音模式已结束", "AbortError");
+        } finally {
+          signal.removeEventListener("abort", requestStop);
+          if (signal.aborted) requestStop();
+        }
+      }
+
       async function captureCallTurn({ signal }) {
+        if (state.inputTarget === "pi") {
+          return capturePiCallTurn({ signal });
+        }
         if (!voiceAvailable()) {
           throw callError("浏览器识别和后端转写都不可用", "speech_unavailable", { fatal: true });
         }
@@ -1268,7 +1430,9 @@
           if (!sessionId) {
             throw callError("语音会话丢失，请重新开启语音", "session_missing", { fatal: true });
           }
-          if (turn.kind === "transcript") {
+          if (turn.kind === "pi_reply") {
+            data = turn.data;
+          } else if (turn.kind === "transcript") {
             data = await requestJSON("/api/respond", {
               method: "POST",
               body: {
@@ -1313,7 +1477,11 @@
           throw callError("小七没有返回可播放的语音", "reply_audio_missing");
         }
         if (!callAudio) callAudio = new Audio();
-        await playAudio(data.audio_url, { audioElement: callAudio, signal });
+        await playAudio(data.audio_url, {
+          audioElement: callAudio,
+          signal,
+          waitForCompletion: true,
+        });
       }
 
       function setCallUiLock(locked) {
@@ -1325,9 +1493,14 @@
         els.callIndicator.className = `call-indicator ${current}`;
         window.XiaoQiUI?.morph(els.callIndicator.parentElement);
         if (current === XiaoQiCallMode.CALL_STATES.LISTENING) {
-          els.callState.textContent = "正在听，请直接说话";
+          const usePiInput = state.inputTarget === "pi";
+          els.callState.textContent = usePiInput ? "小七麦克风正在听" : "正在听，请直接说话";
           setBadge(els.voiceBadge, "语音中 · 正在听", "ok");
-          setVoiceStatus("正在听你说话；说完保持安静约 1.1 秒即可自动发送。");
+          setVoiceStatus(
+            usePiInput
+              ? `正在使用小七麦克风收音，本轮最多 ${piCallTurnDuration()} 秒。`
+              : "正在听你说话；说完保持安静约 1.1 秒即可自动发送。",
+          );
           els.bar.style.width = "0%";
         } else if (current === XiaoQiCallMode.CALL_STATES.PROCESSING) {
           els.callState.textContent = "已收句，小七正在思考";
@@ -1335,9 +1508,12 @@
           setVoiceStatus("麦克风已关闭，正在转写并生成回复。");
           els.bar.style.width = "100%";
         } else if (current === XiaoQiCallMode.CALL_STATES.SPEAKING) {
-          els.callState.textContent = "小七正在说话";
+          els.callState.textContent = state.playTarget === "pi" ? "小七音箱正在播放" : "小七正在说话";
           setBadge(els.voiceBadge, "语音中 · 小七说话");
-          setVoiceStatus("回答播放结束后会自动重新打开麦克风。", "ok");
+          setVoiceStatus(
+            `回答正在通过${state.playTarget === "pi" ? "小七音箱" : "浏览器扬声器"}播放；结束后会自动继续收音。`,
+            "ok",
+          );
         } else if (current === XiaoQiCallMode.CALL_STATES.RECOVERING) {
           if (event.reason === "no_speech") {
             els.callState.textContent = "没有听清，正在继续听";
@@ -1383,13 +1559,20 @@
         if (!callController) {
           throw callError("语音模式组件未加载", "call_controller_missing", { fatal: true });
         }
-        if (!voiceAvailable()) throw callError("语音识别当前不可用", "speech_unavailable", { fatal: true });
+        if (!selectedInputAvailable()) {
+          throw callError(
+            state.inputTarget === "pi" ? "小七麦克风当前不可用" : "浏览器麦克风当前不可用",
+            "speech_unavailable",
+            { fatal: true },
+          );
+        }
 
         state.busy = true;
         els.startCall.disabled = true;
         els.callState.textContent = "正在开启语音";
         setBadge(els.voiceBadge, "准备中");
-        const mediaUnlock = primeCallMedia();
+        const needsBrowserMedia = state.inputTarget === "browser" || state.playTarget === "browser";
+        const mediaUnlock = needsBrowserMedia ? primeCallMedia() : Promise.resolve();
 
         try {
           const session = await ensureSession();
@@ -1398,10 +1581,11 @@
           }
           callSessionId = session.id;
           await mediaUnlock;
-          state.playTarget = "browser";
-          localStorage.setItem("hermes.playTarget", "browser");
+          const inputLabel = state.inputTarget === "pi" ? "小七麦克风" : "浏览器麦克风";
+          const outputLabel = state.playTarget === "pi" ? "小七音箱" : "浏览器扬声器";
+          renderInputTarget();
           renderPlayTarget();
-          setChatStatus("语音模式使用当前浏览器的麦克风和扬声器。", "ok");
+          setChatStatus(`语音模式已连接：${inputLabel} → ${outputLabel}。`, "ok");
           state.callActive = true;
           setCallUiLock(true);
           setIdleVoiceControls();
@@ -1903,6 +2087,7 @@
       async function init() {
         setDuration(state.duration);
         els.speakReply.checked = localStorage.getItem("hermes.speakReply") === "true";
+        renderInputTarget();
         renderPlayTarget();
         window.XiaoQiUI?.mount(document);
         state.busy = true;
@@ -1939,6 +2124,8 @@
       els.saveTitle.addEventListener("click", saveTitle);
       els.deleteSession.addEventListener("click", deleteCurrentSession);
       els.refreshHealth.addEventListener("click", loadHealth);
+      els.inputBrowser.addEventListener("click", () => setInputTarget("browser"));
+      els.inputPi.addEventListener("click", () => setInputTarget("pi"));
       els.playBrowser.addEventListener("click", () => setPlayTarget("browser"));
       els.playPi.addEventListener("click", () => setPlayTarget("pi"));
       els.startCall.addEventListener("click", () => {

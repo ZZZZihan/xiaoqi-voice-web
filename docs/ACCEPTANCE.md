@@ -1,5 +1,37 @@
 # Acceptance Checklist
 
+## 2026-09-02 Explicit Raspberry Pi Audio Routing Fix
+
+Target: Raspberry Pi 5 at `192.168.5.12`, app path `/home/pi/.hermes/voice-web`, HTTPS port `8787`.
+
+### Root Cause and Delivered Scope
+
+- The former page exposed a Pi playback choice, but `startCall()` unconditionally reset `hermes.playTarget` to `browser`; therefore clicking `小七音箱` was undone when continuous voice mode started.
+- Continuous voice capture still called browser `getUserMedia()` unconditionally. There was no input selector connecting continuous mode to the existing Pi recording API, so the browser microphone remained the actual input even when the Pi hardware was connected.
+- The voice panel now has two independent, persistent selectors: `浏览器麦克风 / 小七麦克风` for input and `浏览器扬声器 / 小七音箱` for output.
+- Pi input turns use the existing server-side recording job and are bounded to 5–8 seconds per turn. Browser input retains browser-side silence endpointing.
+- Pi output no longer resets at call start. Continuous mode also waits for Pi playback completion before opening the next input turn, reducing speaker-to-microphone echo overlap.
+
+### Verification Evidence
+
+- The Pi OS exposed `USB PnP Sound Device` as capture and `M83` as playback; `/health` reported both `pi_record.available=true` and `pi_playback.available=true`.
+- Local regression passed `48` Python tests and `6` call-mode Node tests. Python compile, inline JavaScript parse, JavaScript syntax, and `git diff --check` passed.
+- The staged server started independently on `127.0.0.1:18792`; STT, TTS, Pi recording, Pi playback, and both new selectors were available before the live cutover.
+- The first cutover attempt used an immediate socket probe and rolled back before Uvicorn had finished opening its socket. The previous four runtime files were restored by their exact SHA-256 values, the resulting systemd start limit was reset, and the old service returned healthy with `NRestarts=0` before a second cutover was attempted.
+- The final cutover waited for real HTTPS readiness. `hermes-voice-web.service` returned `active/running`, `NRestarts=0`, and `ExecMainStatus=0`; `/health` reported STT, TTS, Pi recording, and Pi playback ready.
+- Deployed SHA-256 values matched the staged files: `server.py` `aec0d531...`, `index.html` `3fcc77cd...`, `app.css` `ae5d65f7...`, and `README.md` `a522b27e...`.
+- Real Chromium at `390 by 844` loaded `https://192.168.5.12:8787`, enabled both Pi choices, selected both choices, and preserved `hermes.inputTarget=pi` plus `hermes.playTarget=pi` across reload. The page reported zero console errors.
+
+### Remaining Physical Gate
+
+- The deployment and routing-state checks intentionally did not start recording or audible playback. They do not prove that a person can be heard through the Pi microphone or hear the reply through the M83 speaker.
+- Final physical acceptance requires the user to refresh their own browser, select both `小七麦克风` and `小七音箱`, start voice mode, speak one short sentence, hear the reply from the Pi speaker, then end voice mode.
+- Pi input currently records fixed 5–8 second turns; wake word, acoustic echo cancellation, barge-in, and natural server-side silence endpointing remain outside this change.
+
+### Rollback
+
+Run `/home/pi/.local/state/xiaoqi-device-routing/20260902T035701Z/rollback-device-routing.sh` on the Pi to restore the four previous files and restart `hermes-voice-web.service`.
+
 ## 2026-09-01 Checksummed Application Release
 
 Target: Raspberry Pi 5 at `192.168.5.12`, mDNS name `pi5.local`, app path `/home/pi/.hermes/voice-web`, HTTPS port `8787`.

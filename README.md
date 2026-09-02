@@ -11,7 +11,7 @@ Hermes Voice Web is a small self-hosted web console for a Raspberry Pi running H
 - Daily briefing for "今日简报 / 早安 / 今天怎么样" with weather plus Raspberry Pi service status.
 - Local reminders and todos for "提醒我..." / "我的提醒", stored on the Raspberry Pi and included in daily briefings.
 - Two voice input options: browser microphone recording and Raspberry Pi microphone recording.
-- Automatic half-duplex call mode: click once, speak naturally, pause to submit, hear the reply, and continue without clicking again.
+- Automatic half-duplex call mode with explicit input and output routing: browser microphone or XiaoQi's Raspberry Pi microphone, then browser speaker or XiaoQi's Raspberry Pi speaker.
 - Browser voice input records locally and prefers backend STT when it is ready; browser speech recognition remains available for endpointing and transcript fallback.
 - Raspberry Pi voice input records on the server with `arecord`, then uses backend STT.
 - Edge TTS playback from Hermes audio cache.
@@ -89,15 +89,16 @@ Environment variables:
 - `VOICE_WEB_PI_RECORD_CHANNELS`: WAV recording channels, default `1`.
 - `VOICE_WEB_PI_PLAYBACK_COMMAND`: optional local audio playback command for Raspberry Pi speaker output. When unset, the backend tries common players such as `ffplay`, `mpv`, `cvlc`, `play`, `paplay`, `aplay`, and `afplay`.
 - `VOICE_WEB_PI_PLAYBACK_DEVICE`: optional manual ALSA playback override. When unset, the backend auto-discovers playback hardware from `aplay -l`, preferring non-HDMI devices first and falling back to HDMI.
+- `VOICE_WEB_PI_PLAYBACK_TIMEOUT`: maximum seconds a half-duplex call waits for Raspberry Pi speaker playback to finish, default `180`.
 
 ## Automatic Call Mode
 
-The browser call mode is deliberately half-duplex for the first usable version:
+The call mode is deliberately half-duplex for the first usable version. The selected route is preserved when a call starts; starting a call must never silently reset input or output to the browser.
 
-1. `listening`: the browser microphone is open and local voice activity is measured.
-2. After roughly 1.1 seconds of silence, the microphone closes and the turn enters `processing`.
+1. `listening`: the selected input opens. Browser input uses local voice activity detection; Raspberry Pi input starts a server-side `arecord` job for a bounded 5–8 second turn.
+2. Browser input closes after roughly 1.1 seconds of silence. Raspberry Pi input closes at the end of its bounded turn. The turn then enters `processing`.
 3. The existing Hermes `/api/respond` or `/api/converse` path generates the answer and TTS audio.
-4. `speaking`: the browser plays the whole answer with the microphone closed.
+4. `speaking`: the selected output plays the whole answer with the microphone closed. Raspberry Pi playback waits for `aplay` to finish before the next listening turn begins.
 5. When playback ends, the controller returns to `listening` automatically.
 
 No-speech turns restart listening without consuming the error budget. Three consecutive network, model, transcription, or playback failures end the call; microphone permission failures end it immediately. `call-mode.js` owns this state machine and exposes a small dependency-injected interface, while `index.html` provides the browser microphone, Hermes API, playback, and UI adapters.
@@ -160,7 +161,7 @@ If `snapshot_download` stalls on large Xet files, use a resumable or range-capab
 - `POST /api/pi-record/start`: start a stoppable Raspberry Pi recording job. Body: `{ "session_id": "...", "duration": 30 }`.
 - `POST /api/pi-record/{job_id}/stop`: stop an active Raspberry Pi recording job; the captured audio is then transcribed.
 - `GET /api/pi-record/{job_id}`: poll a Raspberry Pi recording job until it returns `complete` or `error`.
-- `POST /api/pi-playback`: play a generated `/audio/...` file on the server/Raspberry Pi speaker. Body: `{ "audio_url": "/audio/reply.ogg" }`.
+- `POST /api/pi-playback`: play a generated `/audio/...` file on the server/Raspberry Pi speaker. Body: `{ "audio_url": "/audio/reply.ogg", "wait": false }`. Call mode sends `wait: true` to preserve half-duplex behavior.
 - `GET /audio/{path}`: serve generated audio from Hermes audio cache.
 
 ## Tests
@@ -197,7 +198,7 @@ The command writes a timestamped directory, tar archive, and archive checksum un
 8. Submit `/api/respond` and confirm an audio URL.
 9. Submit `/api/converse` when backend STT is expected to work.
 10. Confirm `arecord -l` sees a microphone, then use the `智能助手录音` button or `POST /api/pi-record`.
-11. Open the app from a secure browser context, start continuous voice mode, verify silence causes an automatic retry, and verify **结束语音** releases the microphone and restores the other controls.
+11. Open the app from a secure browser context and verify all four route combinations remain selected after starting: browser/browser, browser/XiaoQi speaker, XiaoQi microphone/browser, and XiaoQi microphone/XiaoQi speaker. Verify browser silence retry, Raspberry Pi bounded-turn capture, half-duplex playback completion, and **结束语音** cleanup separately.
 
 ## Current Acceptance Status
 

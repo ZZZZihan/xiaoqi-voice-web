@@ -102,6 +102,10 @@ def test_index_uses_xiaoqi_brand_and_visible_playback_controls(monkeypatch, tmp_
     assert "生活助手小七" in response.text
     assert "浏览器播放语音回复" in response.text
     assert "小七音箱播放语音回复" in response.text
+    assert "使用当前浏览器麦克风" in response.text
+    assert "使用小七树莓派麦克风" in response.text
+    assert "输入设备" in response.text
+    assert "输出设备" in response.text
     assert "智能助手录音" in response.text
     assert "树莓派录音" not in response.text
     assert "语音模式" in response.text
@@ -121,6 +125,17 @@ def test_index_uses_xiaoqi_brand_and_visible_playback_controls(monkeypatch, tmp_
     assert "浏览器转写不可用，继续使用后端转写。" in response.text
     assert response.text.index('class="side-stack"') < response.text.index('class="panel chat-panel"')
     assert response.text.index('class="panel chat-panel"') < response.text.index('class="panel sidebar"')
+
+    start_call = css_block(response.text, "async function startCall()")
+    assert 'state.playTarget = "browser"' not in start_call
+    assert "selectedInputAvailable()" in start_call
+    assert "小七麦克风" in start_call
+    assert "小七音箱" in start_call
+    assert "waitForCompletion: true" in response.text
+
+    capture_call = css_block(response.text, "async function captureCallTurn({ signal })")
+    assert 'state.inputTarget === "pi"' in capture_call
+    assert "capturePiCallTurn" in capture_call
 
 
 def test_call_mode_asset_is_served_without_cache(monkeypatch, tmp_path):
@@ -166,6 +181,16 @@ def test_tablet_two_column_shell_keeps_voice_area_in_one_column():
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in shell
     assert "grid-template-columns: minmax(0, 1fr);" in side_stack
     assert "grid-auto-flow: row;" in side_stack
+
+
+def test_device_routing_is_explicit_and_mobile_safe():
+    css = server.APP_CSS_FILE.read_text(encoding="utf-8")
+    routing = css_block(css, ".device-routing")
+    mobile = css_block(css, "@media (max-width: 560px)")
+    mobile_routing = css_block(mobile, ".device-routing")
+
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in routing
+    assert "grid-template-columns: minmax(0, 1fr);" in mobile_routing
 
 
 def test_short_desktop_sidebar_can_scroll_expanded_session_settings():
@@ -693,9 +718,12 @@ def test_pi_playback_prefers_direct_alsa_device(monkeypatch, tmp_path):
         def terminate(self):
             self.returncode = -15
 
-        def wait(self):
+        def wait(self, timeout=None):
             self.returncode = 0
             return 0
+
+        def kill(self):
+            self.returncode = -9
 
     monkeypatch.setattr(server, "PI_PLAYBACK_COMMAND", "")
     monkeypatch.setattr(server, "_direct_alsa_playback_device", lambda: "plughw:CARD=vc4hdmi0,DEV=0")
@@ -710,6 +738,39 @@ def test_pi_playback_prefers_direct_alsa_device(monkeypatch, tmp_path):
     assert launched[0][0][:3] == ["/usr/bin/ffmpeg", "-nostdin", "-loglevel"]
     assert launched[1][0] == ["/usr/bin/aplay", "-q", "-D", "plughw:CARD=vc4hdmi0,DEV=0", "-"]
     assert launched[1][1]["stdin"] is launched[0][2].stdout
+
+
+def test_pi_playback_can_wait_for_half_duplex_call(monkeypatch, tmp_path):
+    client, audio_cache = configure_tmp_app(monkeypatch, tmp_path)
+    audio_file = audio_cache / "reply.ogg"
+    audio_file.write_bytes(b"OggS test")
+    waited = []
+
+    class FakeProcess:
+        def __init__(self, command, **kwargs):
+            self.command = command
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            waited.append(timeout)
+            self.returncode = 0
+            return 0
+
+    monkeypatch.setattr(server, "PI_PLAYBACK_COMMAND", "player --quiet")
+    monkeypatch.setattr(server.shutil, "which", lambda name: "/usr/bin/player" if name == "player" else None)
+    monkeypatch.setattr(server.subprocess, "Popen", FakeProcess)
+
+    response = client.post("/api/pi-playback", json={"audio_url": "/audio/reply.ogg", "wait": True})
+
+    assert response.status_code == 200
+    assert response.json()["completed"] is True
+    assert waited == [server.PI_PLAYBACK_TIMEOUT]
 
 
 def test_pi_playback_autodetects_non_hdmi_output(monkeypatch):
