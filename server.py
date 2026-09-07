@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from array import array
 import json
 import importlib
 import asyncio
 import gzip
+import math
 import os
 import re
 import shlex
@@ -19,7 +21,7 @@ import urllib.request
 import wave
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 from urllib.parse import urlencode, unquote, urlparse
 from uuid import uuid4
 
@@ -49,10 +51,50 @@ WEATHER_TIMEOUT = float(os.environ.get("VOICE_WEB_WEATHER_TIMEOUT", "8"))
 PI_RECORD_DEVICE = os.environ.get("VOICE_WEB_PI_RECORD_DEVICE", "").strip()
 PI_RECORD_RATE = int(os.environ.get("VOICE_WEB_PI_RECORD_RATE", "16000"))
 PI_RECORD_CHANNELS = int(os.environ.get("VOICE_WEB_PI_RECORD_CHANNELS", "1"))
+PI_RECORD_VAD_ENABLED = os.environ.get("VOICE_WEB_PI_VAD_ENABLED", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+PI_RECORD_VAD_SILENCE_SECONDS = max(0.4, float(os.environ.get("VOICE_WEB_PI_VAD_SILENCE_SECONDS", "1.0")))
+PI_RECORD_VAD_NO_SPEECH_SECONDS = max(
+    1.0,
+    float(os.environ.get("VOICE_WEB_PI_VAD_NO_SPEECH_SECONDS", "5.0")),
+)
+PI_RECORD_VAD_MIN_SPEECH_SECONDS = max(
+    0.1,
+    float(os.environ.get("VOICE_WEB_PI_VAD_MIN_SPEECH_SECONDS", "0.3")),
+)
+PI_RECORD_VAD_MIN_RMS = min(1.0, max(0.0001, float(os.environ.get("VOICE_WEB_PI_VAD_MIN_RMS", "0.0052"))))
+PI_RECORD_VAD_NOISE_MULTIPLIER = max(
+    1.1,
+    float(os.environ.get("VOICE_WEB_PI_VAD_NOISE_MULTIPLIER", "1.6")),
+)
+PI_RECORD_VAD_RELEASE_MULTIPLIER = max(
+    1.05,
+    float(os.environ.get("VOICE_WEB_PI_VAD_RELEASE_MULTIPLIER", "1.35")),
+)
+PI_RECORD_VAD_CALIBRATION_SECONDS = 0.25
+PI_RECORD_VAD_FRAME_SECONDS = 0.05
 PI_PLAYBACK_COMMAND = os.environ.get("VOICE_WEB_PI_PLAYBACK_COMMAND", "").strip()
 PI_PLAYBACK_DEVICE = os.environ.get("VOICE_WEB_PI_PLAYBACK_DEVICE", "").strip()
 PI_PLAYBACK_TIMEOUT = int(os.environ.get("VOICE_WEB_PI_PLAYBACK_TIMEOUT", "180"))
 HERMES_MAX_TURNS = max(1, int(os.environ.get("VOICE_WEB_HERMES_MAX_TURNS", "3")))
+STREAMING_VOICE_ENABLED = os.environ.get("VOICE_WEB_STREAMING_VOICE_ENABLED", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+STREAMING_VOICE_FIRST_SEGMENT_CHARS = max(
+    16,
+    int(os.environ.get("VOICE_WEB_STREAMING_FIRST_SEGMENT_CHARS", "48")),
+)
+STREAMING_VOICE_SEGMENT_CHARS = max(
+    STREAMING_VOICE_FIRST_SEGMENT_CHARS,
+    int(os.environ.get("VOICE_WEB_STREAMING_SEGMENT_CHARS", "88")),
+)
 VOLCENGINE_ASR_API_VERSION = os.environ.get("VOLCENGINE_ASR_API_VERSION", "v2").strip().lower()
 VOLCENGINE_ASR_V2_WS_URL = os.environ.get(
     "VOLCENGINE_ASR_V2_WS_URL",
@@ -193,10 +235,12 @@ SESSION_LOCK = threading.Lock()
 REMINDERS_LOCK = threading.Lock()
 PI_RECORD_LOCK = threading.Lock()
 LOCAL_STT_LOCK = threading.Lock()
+DEEPSEEK_CLIENT_LOCK = threading.Lock()
 PI_RECORD_JOBS: dict[str, dict[str, Any]] = {}
 MAX_PI_RECORD_JOBS = 20
 LOCAL_STT_MODEL_CACHE: dict[tuple[str, str | None, str, str, int | None], Any] = {}
 LOCAL_STT_PRELOAD_ERROR: str | None = None
+DEEPSEEK_CLIENT_CACHE: dict[str, Any] = {}
 
 
 app = FastAPI(title="Hermes Voice Web")
@@ -258,6 +302,28 @@ def _normalise_message(message: Any) -> dict[str, Any] | None:
     for key in ("audio_url", "duration", "tts"):
         if key in message and message[key] not in (None, ""):
             normalised[key] = message[key]
+    audio_segments = []
+    for index, segment in enumerate(message.get("audio_segments") or []):
+        if not isinstance(segment, dict):
+            continue
+        audio_url = str(segment.get("audio_url") or "").strip()
+        text = str(segment.get("text") or "").strip()
+        if not audio_url or not text:
+            continue
+        try:
+            sequence = max(0, int(segment.get("sequence", index)))
+        except (TypeError, ValueError):
+            sequence = index
+        item: dict[str, Any] = {
+            "sequence": sequence,
+            "text": text,
+            "audio_url": audio_url,
+        }
+        if isinstance(segment.get("tts"), dict):
+            item["tts"] = segment["tts"]
+        audio_segments.append(item)
+    if audio_segments:
+        normalised["audio_segments"] = audio_segments
     return normalised
 
 
@@ -1486,6 +1552,15 @@ def _pi_record_status() -> dict[str, Any]:
         "candidate_devices": candidates[:8],
         "rate": PI_RECORD_RATE,
         "channels": PI_RECORD_CHANNELS,
+        "endpointing": {
+            "enabled": PI_RECORD_VAD_ENABLED,
+            "silence_seconds": PI_RECORD_VAD_SILENCE_SECONDS,
+            "no_speech_seconds": PI_RECORD_VAD_NO_SPEECH_SECONDS,
+            "min_speech_seconds": PI_RECORD_VAD_MIN_SPEECH_SECONDS,
+            "min_rms": PI_RECORD_VAD_MIN_RMS,
+            "noise_multiplier": PI_RECORD_VAD_NOISE_MULTIPLIER,
+            "release_multiplier": PI_RECORD_VAD_RELEASE_MULTIPLIER,
+        },
         "detail": detail,
     }
 
@@ -2734,6 +2809,190 @@ def _run_hermes(prompt: str) -> str:
     return reply
 
 
+class StreamingVoiceUnavailable(RuntimeError):
+    pass
+
+
+class VoiceJobCancelled(RuntimeError):
+    pass
+
+
+def _dotenv_value(path: Path, name: str) -> str | None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line.removeprefix("export ").lstrip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() != name:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        return value or None
+    return None
+
+
+def _deepseek_stream_settings() -> dict[str, str]:
+    chat = _chat_status()
+    provider = str(chat.get("provider") or "").strip().lower()
+    if provider != "deepseek":
+        raise StreamingVoiceUnavailable("The active chat provider is not DeepSeek")
+    model = str(chat.get("model") or "").strip()
+    base_url = str(chat.get("base_url") or "https://api.deepseek.com/v1").strip().rstrip("/")
+    api_key = (
+        os.environ.get("DEEPSEEK_API_KEY")
+        or _dotenv_value(HERMES_HOME / ".env", "DEEPSEEK_API_KEY")
+        or _dotenv_value(HERMES_AGENT / ".env", "DEEPSEEK_API_KEY")
+    )
+    if not model or not api_key:
+        raise StreamingVoiceUnavailable("DeepSeek streaming configuration is incomplete")
+    return {"model": model, "base_url": base_url, "api_key": api_key}
+
+
+def _deepseek_client(settings: dict[str, str]) -> Any:
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise StreamingVoiceUnavailable("The OpenAI-compatible client is not installed") from exc
+
+    with DEEPSEEK_CLIENT_LOCK:
+        cached = DEEPSEEK_CLIENT_CACHE.get("client")
+        if (
+            cached is not None
+            and DEEPSEEK_CLIENT_CACHE.get("base_url") == settings["base_url"]
+            and DEEPSEEK_CLIENT_CACHE.get("api_key") == settings["api_key"]
+        ):
+            return cached
+        previous = DEEPSEEK_CLIENT_CACHE.get("client")
+        if previous is not None:
+            try:
+                previous.close()
+            except Exception:
+                pass
+        client = OpenAI(
+            api_key=settings["api_key"],
+            base_url=settings["base_url"],
+            timeout=HERMES_TIMEOUT,
+            max_retries=1,
+        )
+        DEEPSEEK_CLIENT_CACHE.clear()
+        DEEPSEEK_CLIENT_CACHE.update(
+            {
+                "base_url": settings["base_url"],
+                "api_key": settings["api_key"],
+                "client": client,
+            }
+        )
+        return client
+
+
+def _stream_deepseek_reply(
+    prompt: str,
+    *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> Iterator[str]:
+    settings = _deepseek_stream_settings()
+    client = _deepseek_client(settings)
+    stream = None
+    emitted = False
+    try:
+        stream = client.chat.completions.create(
+            model=settings["model"],
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        )
+        for event in stream:
+            if is_cancelled and is_cancelled():
+                raise VoiceJobCancelled("Voice job was cancelled")
+            choices = getattr(event, "choices", None) or []
+            if not choices:
+                continue
+            delta = getattr(choices[0], "delta", None)
+            content = getattr(delta, "content", None) if delta is not None else None
+            if not isinstance(content, str) or not content:
+                continue
+            emitted = True
+            yield content
+    except VoiceJobCancelled:
+        raise
+    except Exception as exc:
+        status_code = int(getattr(exc, "status_code", 0) or 0)
+        api_status = status_code if status_code in {401, 403, 429} else 502
+        detail = str(exc).replace(settings["api_key"], "[redacted]")
+        raise HTTPException(status_code=api_status, detail=f"DeepSeek streaming failed: {detail[:800]}") from exc
+    finally:
+        if stream is not None:
+            try:
+                stream.close()
+            except Exception:
+                pass
+    if not emitted:
+        raise HTTPException(status_code=502, detail="DeepSeek streaming returned an empty reply")
+
+
+class _VoiceReplySegmenter:
+    HARD_BREAKS = frozenset("。！？!?；;\n")
+    SOFT_BREAKS = frozenset("，、,:：")
+
+    def __init__(self, first_limit: int, later_limit: int) -> None:
+        self.first_limit = max(16, int(first_limit))
+        self.later_limit = max(self.first_limit, int(later_limit))
+        self.buffer = ""
+        self.segment_count = 0
+
+    def _limit(self) -> int:
+        return self.first_limit if self.segment_count == 0 else self.later_limit
+
+    def _take(self, end: int) -> str | None:
+        piece = self.buffer[:end].strip()
+        self.buffer = self.buffer[end:].lstrip()
+        if not piece:
+            return None
+        self.segment_count += 1
+        return piece
+
+    def feed(self, text: str) -> list[str]:
+        self.buffer += str(text or "")
+        ready: list[str] = []
+        while self.buffer:
+            hard_end = next(
+                (index + 1 for index, char in enumerate(self.buffer) if char in self.HARD_BREAKS),
+                None,
+            )
+            limit = self._limit()
+            if hard_end is not None and hard_end <= limit:
+                piece = self._take(hard_end)
+            elif len(self.buffer) >= limit:
+                minimum_soft = max(12, limit // 2)
+                soft_end = max(
+                    (index + 1 for index, char in enumerate(self.buffer[:limit]) if char in self.SOFT_BREAKS),
+                    default=0,
+                )
+                piece = self._take(soft_end if soft_end >= minimum_soft else limit)
+            elif hard_end is not None:
+                piece = self._take(hard_end)
+            else:
+                break
+            if piece:
+                ready.append(piece)
+        return ready
+
+    def finish(self) -> list[str]:
+        if not self.buffer.strip():
+            self.buffer = ""
+            return []
+        piece = self._take(len(self.buffer))
+        return [piece] if piece else []
+
+
 def _build_chat_prompt(
     history: list[dict[str, Any]],
     user_text: str,
@@ -2817,6 +3076,55 @@ def _speak_reply(reply: str) -> dict[str, Any]:
             "provider": tts.get("provider"),
             "voice_compatible": tts.get("voice_compatible"),
         },
+    }
+
+
+def _save_voice_exchange(
+    session: dict[str, Any],
+    user_text: str,
+    reply: str,
+    duration: int,
+    *,
+    audio_url: str | None,
+    tts: dict[str, Any] | None,
+    audio_segments: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    now = _now()
+    user_message = {
+        "id": uuid4().hex[:12],
+        "role": "user",
+        "content": user_text,
+        "kind": "voice",
+        "created_at": now,
+        "duration": duration,
+    }
+    assistant_message = {
+        "id": uuid4().hex[:12],
+        "role": "assistant",
+        "content": reply,
+        "kind": "voice",
+        "created_at": _now(),
+    }
+    if audio_url:
+        assistant_message["audio_url"] = audio_url
+    if tts:
+        assistant_message["tts"] = tts
+    if audio_segments:
+        assistant_message["audio_segments"] = [dict(segment) for segment in audio_segments]
+
+    saved_session = _append_exchange(session["id"], user_message, assistant_message, user_text)
+    return {
+        "session_id": saved_session["id"],
+        "session": saved_session,
+        "sessions": _list_sessions(),
+        "user_message": user_message,
+        "message": assistant_message,
+        "reply": reply,
+        "audio_url": audio_url,
+        "audio_segments": [dict(segment) for segment in audio_segments or []],
+        "tts": tts,
+        "duration": duration,
+        "transcript": user_text,
     }
 
 
@@ -2948,7 +3256,13 @@ def _create_pi_record_tempfile() -> Path:
         return Path(tmp.name)
 
 
-def _pi_record_command(recorder: str, device: str, duration: int, audio_path: Path) -> list[str]:
+def _create_pi_record_rawfile() -> Path:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(prefix="pi_record_", suffix=".pcm", dir=UPLOAD_DIR, delete=False) as tmp:
+        return Path(tmp.name)
+
+
+def _pi_record_command(recorder: str, device: str, duration: int, raw_path: Path) -> list[str]:
     return [
         recorder,
         "-q",
@@ -2960,10 +3274,156 @@ def _pi_record_command(recorder: str, device: str, duration: int, audio_path: Pa
         str(PI_RECORD_RATE),
         "-c",
         str(PI_RECORD_CHANNELS),
+        "-t",
+        "raw",
         "-d",
         str(duration),
-        str(audio_path),
+        str(raw_path),
     ]
+
+
+def _pcm_s16le_rms(data: bytes) -> float:
+    usable = len(data) - (len(data) % 2)
+    if usable <= 0:
+        return 0.0
+    samples = array("h")
+    samples.frombytes(data[:usable])
+    if sys.byteorder != "little":
+        samples.byteswap()
+    if not samples:
+        return 0.0
+    mean_square = sum(sample * sample for sample in samples) / len(samples)
+    return min(1.0, math.sqrt(mean_square) / 32768.0)
+
+
+class _PiVoiceEndpointDetector:
+    def __init__(
+        self,
+        *,
+        rate: int,
+        channels: int,
+        silence_seconds: float,
+        no_speech_seconds: float,
+        min_speech_seconds: float,
+        min_rms: float,
+        noise_multiplier: float,
+        release_multiplier: float = PI_RECORD_VAD_RELEASE_MULTIPLIER,
+        frame_seconds: float = PI_RECORD_VAD_FRAME_SECONDS,
+        calibration_seconds: float = PI_RECORD_VAD_CALIBRATION_SECONDS,
+    ) -> None:
+        self.rate = max(1, int(rate))
+        self.channels = max(1, int(channels))
+        self.frame_seconds = max(0.02, float(frame_seconds))
+        frame_samples = max(1, round(self.rate * self.frame_seconds))
+        self.frame_bytes = frame_samples * self.channels * 2
+        self.frame_duration = frame_samples / self.rate
+        self.silence_seconds = max(self.frame_duration, float(silence_seconds))
+        self.no_speech_seconds = max(self.frame_duration, float(no_speech_seconds))
+        self.min_speech_seconds = max(self.frame_duration, float(min_speech_seconds))
+        self.min_rms = min(1.0, max(0.0001, float(min_rms)))
+        self.noise_multiplier = max(1.1, float(noise_multiplier))
+        self.release_multiplier = min(
+            self.noise_multiplier * 0.95,
+            max(1.05, float(release_multiplier)),
+        )
+        self.calibration_seconds = max(self.frame_duration, float(calibration_seconds))
+        self.elapsed_seconds = 0.0
+        self.speech_detected = False
+        self.noise_floor = self.min_rms / self.noise_multiplier
+        self.peak_rms = 0.0
+        self.trigger_threshold = self.min_rms
+        self.release_threshold = self.min_rms * 0.85
+        self._calibration_levels: list[float] = []
+        self._speech_run_seconds = 0.0
+        self._silence_run_seconds = 0.0
+        self._pending = bytearray()
+
+    def feed(self, data: bytes) -> str | None:
+        self._pending.extend(data)
+        while len(self._pending) >= self.frame_bytes:
+            frame = bytes(self._pending[: self.frame_bytes])
+            del self._pending[: self.frame_bytes]
+            self.elapsed_seconds += self.frame_duration
+            rms = _pcm_s16le_rms(frame)
+            self.peak_rms = max(self.peak_rms, rms)
+
+            if not self.speech_detected and self.elapsed_seconds <= self.calibration_seconds:
+                self._calibration_levels.append(rms)
+                ordered = sorted(self._calibration_levels)
+                measured_floor = max(0.0001, ordered[max(0, len(ordered) // 4)])
+                # A person may begin speaking as soon as recording starts. Do
+                # not let those first syllables raise the floor without bound,
+                # but retain a genuinely higher ambient floor.  The previous
+                # upper clamp forced XiaoQi's measured 0.011 RMS room noise down
+                # to 0.0043, making silence permanently look like speech.
+                self.noise_floor = min(
+                    self.min_rms * 2.5,
+                    max(self.min_rms / self.noise_multiplier, measured_floor),
+                )
+                continue
+
+            trigger_threshold = max(self.min_rms, self.noise_floor * self.noise_multiplier)
+            self.trigger_threshold = trigger_threshold
+            if not self.speech_detected:
+                if rms >= trigger_threshold:
+                    self._speech_run_seconds += self.frame_duration
+                else:
+                    self._speech_run_seconds = 0.0
+                    self.noise_floor = max(0.0001, self.noise_floor * 0.92 + rms * 0.08)
+
+                if self._speech_run_seconds >= self.min_speech_seconds:
+                    self.speech_detected = True
+                    self._silence_run_seconds = 0.0
+                elif self.elapsed_seconds >= self.no_speech_seconds:
+                    return "no_speech"
+                continue
+
+            # Hysteresis keeps quiet syllables from ending a turn while still
+            # placing the release threshold above the measured room-noise tail.
+            self.release_threshold = min(
+                self.trigger_threshold * 0.95,
+                max(self.min_rms * 0.85, self.noise_floor * self.release_multiplier),
+            )
+            if rms < self.release_threshold:
+                self._silence_run_seconds += self.frame_duration
+            else:
+                self._silence_run_seconds = 0.0
+            if self._silence_run_seconds >= self.silence_seconds:
+                return "silence"
+        return None
+
+
+def _write_pi_record_wav(raw_path: Path, audio_path: Path) -> bool:
+    raw = raw_path.read_bytes()
+    frame_width = max(1, PI_RECORD_CHANNELS) * 2
+    usable = len(raw) - (len(raw) % frame_width)
+    if usable <= 0:
+        return False
+    with wave.open(str(audio_path), "wb") as wav:
+        wav.setnchannels(PI_RECORD_CHANNELS)
+        wav.setsampwidth(2)
+        wav.setframerate(PI_RECORD_RATE)
+        wav.writeframes(raw[:usable])
+    return True
+
+
+def _interrupt_pi_record_process(proc: Any) -> None:
+    try:
+        proc.send_signal(signal.SIGINT)
+    except OSError:
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+
+
+def _read_pi_record_chunk(raw_path: Path, offset: int) -> bytes:
+    try:
+        with raw_path.open("rb") as source:
+            source.seek(offset)
+            return source.read()
+    except OSError:
+        return b""
 
 
 def _wav_has_audio(audio_path: Path) -> bool:
@@ -2984,14 +3444,37 @@ def _record_pi_audio(duration: int, job_id: str | None = None) -> Path:
 
     errors: list[str] = []
     for device in candidates:
-        tmp_path = _create_pi_record_tempfile()
-        command = _pi_record_command(recorder, device, duration, tmp_path)
+        audio_path = _create_pi_record_tempfile()
+        raw_path = _create_pi_record_rawfile()
+        command = _pi_record_command(recorder, device, duration, raw_path)
         proc: subprocess.Popen[str] | None = None
+        detector = (
+            _PiVoiceEndpointDetector(
+                rate=PI_RECORD_RATE,
+                channels=PI_RECORD_CHANNELS,
+                silence_seconds=PI_RECORD_VAD_SILENCE_SECONDS,
+                no_speech_seconds=min(duration, PI_RECORD_VAD_NO_SPEECH_SECONDS),
+                min_speech_seconds=PI_RECORD_VAD_MIN_SPEECH_SECONDS,
+                min_rms=PI_RECORD_VAD_MIN_RMS,
+                noise_multiplier=PI_RECORD_VAD_NOISE_MULTIPLIER,
+                release_multiplier=PI_RECORD_VAD_RELEASE_MULTIPLIER,
+            )
+            if PI_RECORD_VAD_ENABLED
+            else None
+        )
+        endpoint_reason: str | None = None
+        endpoint_signalled = False
+        signal_sent_at: float | None = None
+        termination_stage = 0
+        read_offset = 0
+        stdout = ""
+        stderr = ""
+        timed_out = False
         try:
             proc = subprocess.Popen(
                 command,
                 text=True,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
             if job_id:
@@ -3000,26 +3483,76 @@ def _record_pi_audio(duration: int, job_id: str | None = None) -> Path:
                     job = PI_RECORD_JOBS.get(job_id)
                     if job:
                         job["device"] = device
-                        job["audio_path"] = str(tmp_path)
+                        job["audio_path"] = str(audio_path)
                         job["proc"] = proc
                         stop_requested = bool(job.get("stop_requested"))
                 if stop_requested and proc.poll() is None:
-                    try:
-                        proc.send_signal(signal.SIGINT)
-                    except OSError:
+                    endpoint_reason = "manual"
+                    endpoint_signalled = True
+                    signal_sent_at = time.monotonic()
+                    _interrupt_pi_record_process(proc)
+
+            deadline = time.monotonic() + duration + 15
+            while proc.poll() is None:
+                if job_id and not endpoint_signalled:
+                    with PI_RECORD_LOCK:
+                        job = PI_RECORD_JOBS.get(job_id)
+                        stop_requested = bool(job and job.get("stop_requested"))
+                    if stop_requested:
+                        endpoint_reason = "manual"
+                        endpoint_signalled = True
+                        signal_sent_at = time.monotonic()
+                        _interrupt_pi_record_process(proc)
+
+                chunk = _read_pi_record_chunk(raw_path, read_offset)
+                if chunk:
+                    read_offset += len(chunk)
+                    detected_reason = detector.feed(chunk) if detector else None
+                    if detected_reason and not endpoint_signalled:
+                        endpoint_reason = detected_reason
+                        endpoint_signalled = True
+                        signal_sent_at = time.monotonic()
+                        _interrupt_pi_record_process(proc)
+
+                now = time.monotonic()
+                if signal_sent_at is not None and now - signal_sent_at >= 2:
+                    if termination_stage == 0:
                         try:
                             proc.terminate()
                         except OSError:
                             pass
-            stdout, stderr = proc.communicate(timeout=duration + 15)
+                        termination_stage = 1
+                        signal_sent_at = now
+                    elif termination_stage == 1:
+                        try:
+                            proc.kill()
+                        except OSError:
+                            pass
+                        termination_stage = 2
+                        signal_sent_at = now
+                if now >= deadline:
+                    timed_out = True
+                    if proc.poll() is None:
+                        proc.kill()
+                    break
+                time.sleep(PI_RECORD_VAD_FRAME_SECONDS)
+
+            stdout, stderr = proc.communicate(timeout=5)
+            final_chunk = _read_pi_record_chunk(raw_path, read_offset)
+            if final_chunk and detector:
+                detected_reason = detector.feed(final_chunk)
+                if endpoint_reason is None:
+                    endpoint_reason = detected_reason
         except subprocess.TimeoutExpired as exc:
             if proc and proc.poll() is None:
                 proc.kill()
                 proc.communicate()
-            tmp_path.unlink(missing_ok=True)
+            audio_path.unlink(missing_ok=True)
+            raw_path.unlink(missing_ok=True)
             raise HTTPException(status_code=504, detail=f"Pi recording timed out after {duration} seconds") from exc
         except OSError as exc:
-            tmp_path.unlink(missing_ok=True)
+            audio_path.unlink(missing_ok=True)
+            raw_path.unlink(missing_ok=True)
             errors.append(f"{device}: {exc}")
             continue
         finally:
@@ -3029,31 +3562,59 @@ def _record_pi_audio(duration: int, job_id: str | None = None) -> Path:
                     if job and job.get("proc") is proc:
                         job["proc"] = None
 
+        if timed_out:
+            audio_path.unlink(missing_ok=True)
+            raw_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=504, detail=f"Pi recording timed out after {duration} seconds")
+
+        # EOF is also a turn boundary. Floating-point frame accumulation or
+        # a short recording may end before feed() returns its timeout reason.
+        if detector and endpoint_reason is None and not detector.speech_detected:
+            endpoint_reason = "no_speech"
+
         stopped = False
         if job_id:
             with PI_RECORD_LOCK:
                 job = PI_RECORD_JOBS.get(job_id)
                 stopped = bool(job and job.get("stop_requested"))
+                if stopped and not endpoint_signalled:
+                    endpoint_reason = "manual"
+                if job:
+                    job["speech_detected"] = bool(detector and detector.speech_detected)
+                    job["endpoint_reason"] = endpoint_reason or ("manual" if stopped else "max_duration")
+                    job["vad_peak_rms"] = round(detector.peak_rms, 6) if detector else None
+                    job["vad_noise_floor"] = round(detector.noise_floor, 6) if detector else None
+                    job["vad_trigger_threshold"] = round(detector.trigger_threshold, 6) if detector else None
+                    job["vad_release_threshold"] = round(detector.release_threshold, 6) if detector else None
 
-        if stopped and _wav_has_audio(tmp_path):
-            return tmp_path
-
-        if proc.returncode != 0:
-            tmp_path.unlink(missing_ok=True)
+        accepted_early_exit = stopped or endpoint_signalled
+        if proc.returncode != 0 and not accepted_early_exit:
+            audio_path.unlink(missing_ok=True)
+            raw_path.unlink(missing_ok=True)
             detail = (stderr or stdout or "Pi recording command failed").strip()
-            if stopped:
-                raise HTTPException(status_code=400, detail="Pi recording was stopped before usable audio was captured")
             errors.append(f"{device}: {detail[-500:]}")
             continue
 
-        if not _wav_has_audio(tmp_path):
-            tmp_path.unlink(missing_ok=True)
+        try:
+            wrote_audio = _write_pi_record_wav(raw_path, audio_path)
+        except OSError as exc:
+            wrote_audio = False
+            errors.append(f"{device}: could not finalize WAV: {exc}")
+        finally:
+            raw_path.unlink(missing_ok=True)
+
+        if not wrote_audio or not _wav_has_audio(audio_path):
+            audio_path.unlink(missing_ok=True)
             if stopped:
                 raise HTTPException(status_code=400, detail="Pi recording was stopped before usable audio was captured")
             errors.append(f"{device}: empty WAV file")
             continue
 
-        return tmp_path
+        if detector and endpoint_reason == "no_speech":
+            audio_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="No speech was detected")
+
+        return audio_path
 
     detail = "; ".join(errors) or "No Raspberry Pi recording devices were found"
     raise HTTPException(status_code=500, detail=detail[-2000:])
@@ -3076,7 +3637,7 @@ def _prune_pi_record_jobs_unlocked() -> None:
     finished = [
         job
         for job in PI_RECORD_JOBS.values()
-        if job.get("status") in {"complete", "error"}
+        if job.get("status") in {"complete", "error", "cancelled"}
     ]
     finished.sort(key=lambda item: str(item.get("completed_at") or item.get("started_at") or ""))
     for job in finished[: max(0, len(PI_RECORD_JOBS) - MAX_PI_RECORD_JOBS)]:
@@ -3090,12 +3651,25 @@ def _serialise_pi_record_job(job: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "job_id": job["id"],
         "status": job.get("status"),
+        "stage": job.get("stage"),
         "duration": job.get("duration"),
         "elapsed": job.get("elapsed") or elapsed,
         "started_at": job.get("started_at"),
         "completed_at": job.get("completed_at"),
         "device": job.get("device"),
         "stop_requested": bool(job.get("stop_requested")),
+        "speech_detected": bool(job.get("speech_detected")),
+        "endpoint_reason": job.get("endpoint_reason"),
+        "vad_peak_rms": job.get("vad_peak_rms"),
+        "vad_noise_floor": job.get("vad_noise_floor"),
+        "vad_trigger_threshold": job.get("vad_trigger_threshold"),
+        "vad_release_threshold": job.get("vad_release_threshold"),
+        "stream_requested": bool(job.get("stream_requested")),
+        "generation_complete": bool(job.get("generation_complete")),
+        "transcript": job.get("transcript"),
+        "reply_partial": job.get("reply_partial"),
+        "segments": [dict(segment) for segment in job.get("segments") or []],
+        "timing": dict(job.get("timing") or {}),
     }
     if job.get("result") is not None:
         payload["result"] = job["result"]
@@ -3114,6 +3688,234 @@ def _get_pi_record_job(job_id: str) -> dict[str, Any]:
         return _serialise_pi_record_job(job)
 
 
+def _pi_record_job_cancelled(job_id: str) -> bool:
+    with PI_RECORD_LOCK:
+        job = PI_RECORD_JOBS.get(job_id)
+        return not job or bool(job.get("stop_requested"))
+
+
+def _pi_job_elapsed_ms(job: dict[str, Any]) -> int:
+    started = float(job.get("started_monotonic") or time.monotonic())
+    return max(0, round((time.monotonic() - started) * 1000))
+
+
+def _pi_job_mark(job: dict[str, Any], name: str) -> None:
+    timing = job.setdefault("timing", {})
+    timing.setdefault(name, _pi_job_elapsed_ms(job))
+
+
+def _iter_streaming_voice_reply(
+    session: dict[str, Any],
+    user_text: str,
+    *,
+    is_cancelled: Callable[[], bool],
+) -> Iterator[str]:
+    reply = _handle_reminder_intent(user_text)
+    external_context: str | None = None
+    if reply is None:
+        external_context = _build_briefing_context_for_text(user_text)
+        try:
+            if external_context is None:
+                external_context = _build_weather_context_for_text(user_text)
+        except WeatherLocationRequired:
+            reply = _weather_location_required_reply()
+        except WeatherLookupError as exc:
+            reply = _weather_lookup_failed_reply(exc)
+
+    if reply is not None:
+        yield reply
+        return
+
+    prompt = _build_chat_prompt(
+        session.get("messages") or [],
+        user_text,
+        voice=True,
+        external_context=external_context,
+    )
+    yield from _stream_deepseek_reply(prompt, is_cancelled=is_cancelled)
+
+
+def _synthesise_pi_voice_segment(job_id: str, text: str) -> dict[str, Any] | None:
+    spoken_text = _plain_speech_reply(text)
+    if not spoken_text:
+        return None
+    if _pi_record_job_cancelled(job_id):
+        raise VoiceJobCancelled("Voice job was cancelled")
+
+    with PI_RECORD_LOCK:
+        job = PI_RECORD_JOBS.get(job_id)
+        if not job:
+            raise VoiceJobCancelled("Voice job no longer exists")
+        sequence = len(job.get("segments") or [])
+        if sequence == 0:
+            _pi_job_mark(job, "first_tts_started_ms")
+        job["stage"] = "synthesising"
+
+    speech = _speak_reply(spoken_text)
+    segment = {
+        "sequence": sequence,
+        "text": spoken_text,
+        "audio_url": speech["audio_url"],
+        "tts": speech.get("tts"),
+    }
+
+    if _pi_record_job_cancelled(job_id):
+        try:
+            _audio_cache_path_from_url(speech["audio_url"]).unlink(missing_ok=True)
+        except (HTTPException, OSError):
+            pass
+        raise VoiceJobCancelled("Voice job was cancelled")
+
+    with PI_RECORD_LOCK:
+        job = PI_RECORD_JOBS.get(job_id)
+        if not job:
+            raise VoiceJobCancelled("Voice job no longer exists")
+        job.setdefault("segments", []).append(segment)
+        job["status"] = "streaming"
+        job["stage"] = "reply_ready"
+        if sequence == 0:
+            _pi_job_mark(job, "first_audio_ready_ms")
+    return segment
+
+
+def _combine_voice_segments(segments: list[dict[str, Any]]) -> str | None:
+    if not segments:
+        return None
+    first_url = str(segments[0].get("audio_url") or "") or None
+    if len(segments) == 1:
+        return first_url
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return first_url
+
+    try:
+        audio_paths = [_audio_cache_path_from_url(str(segment.get("audio_url") or "")) for segment in segments]
+    except HTTPException:
+        return first_url
+
+    AUDIO_CACHE.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = AUDIO_CACHE / f"tts_stream_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.mp3"
+    list_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix="tts_concat_",
+            suffix=".txt",
+            dir=UPLOAD_DIR,
+            mode="w",
+            encoding="utf-8",
+            delete=False,
+        ) as handle:
+            list_path = Path(handle.name)
+            for path in audio_paths:
+                escaped = str(path.resolve()).replace("'", "'\\''")
+                handle.write(f"file '{escaped}'\n")
+        proc = subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_path),
+                "-c",
+                "copy",
+                str(output_path),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        if proc.returncode == 0 and output_path.is_file() and output_path.stat().st_size > 0:
+            return f"/audio/{output_path.name}"
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    finally:
+        if list_path:
+            list_path.unlink(missing_ok=True)
+    output_path.unlink(missing_ok=True)
+    return first_url
+
+
+def _stream_voice_answer_for_pi_job(
+    job_id: str,
+    transcript: str,
+    duration: int,
+    session_id: str | None,
+) -> dict[str, Any]:
+    transcript = str(transcript or "").strip()
+    if not transcript:
+        raise HTTPException(status_code=400, detail="No speech was transcribed")
+    session = _prepare_session(session_id)
+    segmenter = _VoiceReplySegmenter(
+        STREAMING_VOICE_FIRST_SEGMENT_CHARS,
+        STREAMING_VOICE_SEGMENT_CHARS,
+    )
+    reply_parts: list[str] = []
+    is_cancelled = lambda: _pi_record_job_cancelled(job_id)
+
+    with PI_RECORD_LOCK:
+        job = PI_RECORD_JOBS.get(job_id)
+        if not job:
+            raise VoiceJobCancelled("Voice job no longer exists")
+        job["transcript"] = transcript
+        job["stage"] = "generating"
+        _pi_job_mark(job, "asr_completed_ms")
+        _pi_job_mark(job, "llm_started_ms")
+
+    for delta in _iter_streaming_voice_reply(session, transcript, is_cancelled=is_cancelled):
+        if is_cancelled():
+            raise VoiceJobCancelled("Voice job was cancelled")
+        reply_parts.append(delta)
+        partial = "".join(reply_parts)
+        with PI_RECORD_LOCK:
+            job = PI_RECORD_JOBS.get(job_id)
+            if not job:
+                raise VoiceJobCancelled("Voice job no longer exists")
+            if not job.get("reply_partial"):
+                _pi_job_mark(job, "llm_first_token_ms")
+            job["reply_partial"] = partial
+        for segment_text in segmenter.feed(delta):
+            _synthesise_pi_voice_segment(job_id, segment_text)
+
+    for segment_text in segmenter.finish():
+        _synthesise_pi_voice_segment(job_id, segment_text)
+
+    reply = _plain_speech_reply("".join(reply_parts))
+    if not reply:
+        raise HTTPException(status_code=502, detail="DeepSeek streaming returned an empty reply")
+
+    with PI_RECORD_LOCK:
+        job = PI_RECORD_JOBS.get(job_id)
+        if not job:
+            raise VoiceJobCancelled("Voice job no longer exists")
+        segments = [dict(segment) for segment in job.get("segments") or []]
+        _pi_job_mark(job, "generation_completed_ms")
+    if not segments:
+        segment = _synthesise_pi_voice_segment(job_id, reply)
+        segments = [dict(segment)] if segment else []
+    if not segments:
+        raise HTTPException(status_code=500, detail="No spoken reply segments were generated")
+
+    combined_audio_url = _combine_voice_segments(segments)
+    result = _save_voice_exchange(
+        session,
+        transcript,
+        reply,
+        duration,
+        audio_url=combined_audio_url,
+        tts=segments[0].get("tts"),
+        audio_segments=segments,
+    )
+    result["streaming"] = True
+    return result
+
+
 def _run_pi_record_job(job_id: str) -> None:
     with PI_RECORD_LOCK:
         job = PI_RECORD_JOBS.get(job_id)
@@ -3121,6 +3923,7 @@ def _run_pi_record_job(job_id: str) -> None:
             return
         duration = int(job["duration"])
         session_id = job.get("session_id")
+        stream_requested = bool(job.get("stream_requested"))
         started_monotonic = float(job["started_monotonic"])
 
     audio_path: Path | None = None
@@ -3131,16 +3934,66 @@ def _run_pi_record_job(job_id: str) -> None:
             job = PI_RECORD_JOBS.get(job_id)
             if job:
                 job["status"] = "processing"
+                job["stage"] = "transcribing"
                 job["elapsed"] = elapsed
                 job["proc"] = None
-        result = _answer_audio_path(audio_path, min(duration, elapsed), str(session_id or "").strip() or None)
+                _pi_job_mark(job, "recording_stopped_ms")
+
+        if stream_requested and STREAMING_VOICE_ENABLED:
+            transcription = _transcribe_audio(str(audio_path))
+            if not transcription.get("success"):
+                raise HTTPException(status_code=500, detail=transcription.get("error") or "Transcription failed")
+            transcript = str(transcription.get("transcript") or "").strip()
+            try:
+                result = _stream_voice_answer_for_pi_job(
+                    job_id,
+                    transcript,
+                    min(duration, elapsed),
+                    str(session_id or "").strip() or None,
+                )
+            except StreamingVoiceUnavailable:
+                with PI_RECORD_LOCK:
+                    job = PI_RECORD_JOBS.get(job_id)
+                    if job:
+                        job["streaming_fallback"] = True
+                        job["stage"] = "generating"
+                        job["transcript"] = transcript
+                        _pi_job_mark(job, "asr_completed_ms")
+                result = _answer_transcript(transcript, min(duration, elapsed), str(session_id or "").strip() or None)
+        else:
+            result = _answer_audio_path(audio_path, min(duration, elapsed), str(session_id or "").strip() or None)
         with PI_RECORD_LOCK:
             job = PI_RECORD_JOBS.get(job_id)
             if job:
                 job["status"] = "complete"
+                job["stage"] = "complete"
                 job["result"] = result
                 job["completed_at"] = _now()
                 job["elapsed"] = elapsed
+                job["generation_complete"] = True
+                job["reply_partial"] = result.get("reply")
+                if not job.get("transcript"):
+                    job["transcript"] = result.get("transcript")
+                if not job.get("segments") and result.get("audio_url"):
+                    job["segments"] = [
+                        {
+                            "sequence": 0,
+                            "text": result.get("reply") or "",
+                            "audio_url": result.get("audio_url"),
+                            "tts": result.get("tts"),
+                        }
+                    ]
+                _pi_job_mark(job, "response_completed_ms")
+                job["proc"] = None
+                job["audio_path"] = None
+    except VoiceJobCancelled:
+        with PI_RECORD_LOCK:
+            job = PI_RECORD_JOBS.get(job_id)
+            if job:
+                job["status"] = "cancelled"
+                job["stage"] = "cancelled"
+                job["completed_at"] = _now()
+                job["generation_complete"] = True
                 job["proc"] = None
                 job["audio_path"] = None
     except HTTPException as exc:
@@ -3148,6 +4001,7 @@ def _run_pi_record_job(job_id: str) -> None:
             job = PI_RECORD_JOBS.get(job_id)
             if job:
                 job["status"] = "error"
+                job["stage"] = "error"
                 job["error"] = exc.detail
                 job["status_code"] = exc.status_code
                 job["completed_at"] = _now()
@@ -3158,6 +4012,7 @@ def _run_pi_record_job(job_id: str) -> None:
             job = PI_RECORD_JOBS.get(job_id)
             if job:
                 job["status"] = "error"
+                job["stage"] = "error"
                 job["error"] = str(exc) or exc.__class__.__name__
                 job["status_code"] = 500
                 job["completed_at"] = _now()
@@ -3171,21 +4026,27 @@ def _run_pi_record_job(job_id: str) -> None:
                 pass
 
 
-def _start_pi_record_job(duration: int, session_id: str | None = None) -> dict[str, Any]:
+def _start_pi_record_job(
+    duration: int,
+    session_id: str | None = None,
+    *,
+    stream_requested: bool = False,
+) -> dict[str, Any]:
     with PI_RECORD_LOCK:
         active = [
             job
             for job in PI_RECORD_JOBS.values()
-            if job.get("status") == "recording"
+            if job.get("status") in {"recording", "processing", "streaming"}
         ]
         if active:
-            raise HTTPException(status_code=409, detail="A Raspberry Pi recording is already running")
+            raise HTTPException(status_code=409, detail="A Raspberry Pi voice turn is already running")
 
         _prune_pi_record_jobs_unlocked()
         job_id = uuid4().hex[:12]
         job = {
             "id": job_id,
             "status": "recording",
+            "stage": "recording",
             "duration": duration,
             "elapsed": 0,
             "session_id": session_id,
@@ -3194,6 +4055,19 @@ def _start_pi_record_job(duration: int, session_id: str | None = None) -> dict[s
             "completed_at": None,
             "device": None,
             "stop_requested": False,
+            "stream_requested": bool(stream_requested),
+            "streaming_fallback": False,
+            "generation_complete": False,
+            "transcript": None,
+            "reply_partial": "",
+            "segments": [],
+            "timing": {},
+            "speech_detected": False,
+            "endpoint_reason": None,
+            "vad_peak_rms": None,
+            "vad_noise_floor": None,
+            "vad_trigger_threshold": None,
+            "vad_release_threshold": None,
             "proc": None,
             "audio_path": None,
             "result": None,
@@ -3402,7 +4276,13 @@ async def pi_record_start(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="duration must be between 1 and 300 seconds")
 
     session_id = str(body.get("session_id") or "").strip() or None
-    return await asyncio.to_thread(_start_pi_record_job, duration, session_id)
+    stream_requested = _is_enabled(body.get("stream"), default=False)
+    return await asyncio.to_thread(
+        _start_pi_record_job,
+        duration,
+        session_id,
+        stream_requested=stream_requested,
+    )
 
 
 @app.post("/api/pi-record/{job_id}/stop")

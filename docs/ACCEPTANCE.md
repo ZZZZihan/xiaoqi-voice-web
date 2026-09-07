@@ -1,5 +1,58 @@
 # Acceptance Checklist
 
+## 2026-09-07 Pi Silence Endpointing and DeepSeek Streaming Source Acceptance
+
+Scope: the Pi silence-endpointing and DeepSeek streaming implementation on `codex/automatic-voice`, based on `c7f7ec7848a376c5d08a0f4403bdbe4ff57e79a5`. The accepted revision is the commit containing this entry; the hashes below identify the exact tested source and tests. This is local source acceptance for GitHub publication, with no deployment, live Pi connection, provider request, or service change.
+
+### Delivered Scope and Review Closure
+
+- Pi capture uses adaptive energy detection with trigger/release hysteresis, minimum sustained speech, a silence endpoint, and an empty-turn bound. Empty automatic recordings are rejected before STT/LLM/TTS, including EOF boundaries at 2 and 5 seconds; explicit manual stops retain their captured-audio processing semantics.
+- DeepSeek deltas become punctuation-aware speech segments, exposed incrementally for ordered playback. The complete text and segment metadata survive session persistence. The existing full-answer path remains the fallback when direct streaming configuration is unavailable.
+- Capture polling errors and streaming playback/polling errors now send one stop request and wait for the old job to become terminal before automatic recovery. The stop request has a 12-second network bound and terminal polling has a 15-second deadline. If cleanup cannot settle, the call ends with an explicit error instead of repeatedly starting turns against the active-job guard.
+- Hangup requests stop promptly and releases the call without waiting for cleanup. Completed jobs and successful capture-to-playback handoff do not send unnecessary stop requests.
+- The initial audit's two blockers were reproduced before repair: two automatic EOF-boundary tests failed, and playback/poll failures emitted zero stop requests. The fixes now pass regression coverage and code review. No blocking finding remains in this scoped review.
+
+### Local Verification
+
+- `python3 -m pytest -q`: **63 passed**, two existing FastAPI `on_event` deprecation warnings.
+- `node --test tests/test_call_mode.js tests/test_pi_streaming.js`: **20 passed** (6 controller tests and 14 tests exercising the actual page adapters with media/network stubs).
+- `python3 -m py_compile server.py tests/test_server.py`: passed.
+- `node --check call-mode.js`, `node --check ui-motion.js`, and `node --check tests/test_pi_streaming.js`: passed.
+- The one inline script in `index.html` parsed with Node `vm.Script`; `git diff --check` passed.
+- New regressions cover EOF/no-speech cleanup and provider non-invocation, manual-stop preservation, streaming failure cleanup, terminal-state waiting before retry, non-blocking hangup, successful handoff, ordered non-repeated playback, session application, and bounded failure when cleanup is unavailable.
+- Host environment: Python **3.14.7**, pytest **9.0.2**, FastAPI **0.135.1**, OpenAI client **2.29.0**, httpx **0.28.1**, Node **26.7.0**. Installed pytest is outside the declared `pytest>=8.0,<9.0` development range; these are results from the existing host environment, not a fresh dependency resolution or a Pi-runtime test.
+
+### Tested File Provenance
+
+| File | SHA-256 |
+| --- | --- |
+| `server.py` | `e96d44ffe3fcc95bb7e856c5fe3b744e6e4d24e3aed4c86dcbdf997672d9dfd3` |
+| `index.html` | `299f5fd079b12d48b9ee852de28ea3bf5c0845a157dd33e29eccc612f8a49f17` |
+| `requirements.txt` | `8f9b555f9ece9ea319c5ba95294ac9b9a23591d32e0925a176666c120e45ce48` |
+| `tests/test_server.py` | `408a3575abc8ab85f9dca0c8ef982130bd3921457220b307bb2c4c9197934a36` |
+| `tests/test_call_mode.js` | `28d30af1805405aadd54f651f961b065aeafc4173483c5a226e03a43a9980b7e` |
+| `tests/test_pi_streaming.js` | `525e9119f5c78d60e1886cddf3ee30e085a3b2dffd0089d7090062d9aa5bed36` |
+
+### Diff Hygiene and Remaining Boundaries
+
+- Reviewed the complete outgoing diff, including the two existing local ancestor commits not yet on the remote branch. No real credentials, private keys, credential-bearing URLs, or accidental build/binary artifacts were found. Credential-shaped values in tests are synthetic fixtures with invalid example endpoints.
+- The focused new change contains runtime code, requirements, regression tests, README, and this acceptance record. Local environment files, caches, deployment bundles, and temporary review reproductions remain excluded.
+- If ffmpeg is unavailable or segment concatenation fails, history's audio control falls back to the first segment. Live segment playback and saved full text/segment metadata remain available. Full history replay under concatenation failure remains a documented limitation.
+- Browser microphone permissions, physical Pi microphone/speaker behavior, live provider behavior, and current service health were not tested by this local verification.
+
+### Historical Pi Provenance
+
+The archive for task `01a06032-2374-76c0-b9c4-a3c9ff136e98` records a 2026-09-03 rollout and physical USB microphone/M83 speaker loop. Its hash comparison at `2026-09-03T06:22:41Z` matched local and remote `server.py`, `index.html`, `requirements.txt`, and `README.md`. The initial September 7 audit matched those exact four local hashes before the corrective code and acceptance-documentation changes in this commit:
+
+| Historical file | Archived SHA-256 |
+| --- | --- |
+| `server.py` | `2b336c787b01385ca3146cca84bad5b81b4b4dc9a2bfc850daec6c77925d5af1` |
+| `index.html` | `8a8da677057d577d2c98f080af3a09df428b2588d06e518ca1b21ca8be67eb08` |
+| `requirements.txt` | `8f9b555f9ece9ea319c5ba95294ac9b9a23591d32e0925a176666c120e45ce48` |
+| `README.md` | `a9d79b732a7754cb08db000cea8f0c17201e42c61e491302a9d1a193cf778478` |
+
+That archived physical test reported silence endpointing, 691 reply characters across 20 audio segments, and first audio ready about 5.88 seconds after endpointing. These are historical observations, not current live acceptance of the corrected source above. Earlier fixed-duration and GLM entries below remain dated historical records.
+
 ## 2026-09-02 Explicit Raspberry Pi Audio Routing Fix
 
 Target: Raspberry Pi 5 at `192.168.5.12`, app path `/home/pi/.hermes/voice-web`, HTTPS port `8787`.

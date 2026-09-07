@@ -431,6 +431,18 @@
         return Math.min(8, Math.max(5, Number(state.duration) || 8));
       }
 
+      function piCallEndpointSummary() {
+        const endpointing = state.health && state.health.pi_record && state.health.pi_record.endpointing;
+        if (!endpointing || !endpointing.enabled) {
+          return `每轮收音最多 ${piCallTurnDuration()} 秒`;
+        }
+        const configuredSilence = Number(endpointing.silence_seconds);
+        const silenceSeconds = Number.isFinite(configuredSilence) && configuredSilence > 0
+          ? configuredSilence
+          : 1;
+        return `说完安静约 ${silenceSeconds} 秒自动发送，最长 ${piCallTurnDuration()} 秒`;
+      }
+
       function renderInputTarget() {
         const usePi = state.inputTarget === "pi";
         els.inputBrowser.classList.toggle("active", !usePi);
@@ -532,6 +544,7 @@
         const stt = health.stt || {};
         const tts = health.tts || {};
         const piRecord = health.pi_record || {};
+        const piEndpointing = piRecord.endpointing || {};
         const piPlayback = health.pi_playback || {};
         const weather = health.weather || {};
         const briefing = health.briefing || {};
@@ -550,6 +563,11 @@
           ],
           ["后端转写", stt.ready ? `${stt.provider || "-"} 就绪` : stt.detail || `${stt.provider || "-"} 未就绪`, stt.ready ? "ok" : "warn"],
           ["智能助手录音", piRecord.available ? `${piRecord.device || "auto"} / ${piRecord.rate || "-"} Hz` : piRecord.detail || "不可用", piRecord.available ? "ok" : "warn"],
+          [
+            "小七自动收句",
+            piEndpointing.enabled ? `安静约 ${piEndpointing.silence_seconds || 1} 秒后发送` : "未启用",
+            piEndpointing.enabled ? "ok" : "warn",
+          ],
           ["树莓派播放", piPlayback.available ? `${piPlayback.player || "可用"}${piPlayback.device ? ` / ${piPlayback.device}` : ""}` : "不可用", piPlayback.available ? "ok" : "warn"],
           ["回复朗读", tts.ready ? `${tts.provider || "-"} ${tts.voice || ""}`.trim() : "未就绪", tts.ready ? "ok" : "err"],
           ["会话存储", health.sessions_file || "已启用", "ok"],
@@ -573,7 +591,7 @@
           localStorage.getItem("hermes.speakReply") === "true" && canGenerateSpokenReply();
         if (state.inputTarget === "pi" && canUsePiRecord()) {
           els.voiceHint.className = "voice-hint ok";
-          els.voiceHint.textContent = `连续语音将使用小七麦克风，每轮收音最多 ${piCallTurnDuration()} 秒。`;
+          els.voiceHint.textContent = `连续语音将使用小七麦克风；${piCallEndpointSummary()}。`;
         } else if (state.inputTarget === "pi") {
           els.voiceHint.className = "voice-hint err";
           els.voiceHint.textContent = "小七麦克风当前不可用，请刷新设备状态或切回浏览器麦克风。";
@@ -1045,10 +1063,50 @@
 
       function stopPiCallJob(jobId) {
         if (!jobId) return Promise.resolve();
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000);
         return fetch(`/api/pi-record/${encodeURIComponent(jobId)}/stop`, {
           method: "POST",
           keepalive: true,
-        }).catch(() => undefined);
+          signal: controller.signal,
+        }).catch(() => undefined).finally(() => clearTimeout(timeout));
+      }
+
+      function piCallJobFinished(job) {
+        return ["complete", "error", "cancelled"].includes(job?.status);
+      }
+
+      async function drainPiCallJob(jobId, signal, stopPromise) {
+        if (signal.aborted) return;
+        await new Promise((resolve) => {
+          const done = () => {
+            signal.removeEventListener("abort", done);
+            resolve();
+          };
+          signal.addEventListener("abort", done, { once: true });
+          Promise.resolve(stopPromise).then(done, done);
+        });
+        const deadline = Date.now() + 15000;
+        while (!signal.aborted && Date.now() < deadline) {
+          try {
+            const job = await requestJSON(`/api/pi-record/${encodeURIComponent(jobId)}`, {
+              signal,
+              timeoutMs: Math.min(3000, Math.max(1000, deadline - Date.now())),
+            });
+            if (piCallJobFinished(job)) return;
+          } catch (error) {
+            if (signal.aborted || error.status === 404) return;
+          }
+          try {
+            await waitForCallPoll(250, signal);
+          } catch (error) {
+            if (signal.aborted) return;
+            throw error;
+          }
+        }
+        if (!signal.aborted) {
+          throw callError("上一轮小七语音尚未结束，请稍后重新开启语音", "pi_job_cleanup_failed", { fatal: true });
+        }
       }
 
       async function capturePiCallTurn({ signal }) {
@@ -1061,6 +1119,7 @@
           body: {
             duration,
             session_id: callSessionId,
+            stream: true,
           },
           signal,
           timeoutMs: 12000,
@@ -1070,11 +1129,12 @@
           throw callError("小七麦克风没有返回录音任务", "pi_record_job_missing");
         }
 
-        let stopRequested = false;
+        let jobFinished = false;
+        let handedOff = false;
+        let stopPromise;
         const requestStop = () => {
-          if (stopRequested) return;
-          stopRequested = true;
-          void stopPiCallJob(jobId);
+          if (!jobFinished && !handedOff && !stopPromise) stopPromise = stopPiCallJob(jobId);
+          return stopPromise;
         };
         signal.addEventListener("abort", requestStop, { once: true });
 
@@ -1084,15 +1144,41 @@
               signal,
               timeoutMs: 12000,
             });
+            jobFinished = piCallJobFinished(job);
             const elapsed = Math.max(0, Number(job.elapsed || 0));
+            const readySegments = Array.isArray(job.segments)
+              ? job.segments.filter((segment) => segment && segment.audio_url)
+              : [];
             els.bar.style.width = `${Math.min(100, (elapsed / duration) * 100)}%`;
+
+            if (
+              job.stream_requested &&
+              readySegments.length &&
+              ["streaming", "complete"].includes(job.status)
+            ) {
+              handedOff = true;
+              return {
+                kind: "pi_stream",
+                data: {
+                  stream_job_id: jobId,
+                  initial_job: job,
+                  transcript: job.transcript || job.result?.transcript || "",
+                  audio_url: readySegments[0].audio_url,
+                },
+                duration: Number(job.result?.duration || duration),
+                sessionId: callSessionId,
+              };
+            }
 
             if (job.status === "recording") {
               els.callState.textContent = "小七麦克风正在听";
-              setVoiceStatus(`正在使用小七麦克风收音 ${elapsed}s / ${duration}s。`);
+              setVoiceStatus(`正在使用小七麦克风收音 ${elapsed}s；${piCallEndpointSummary()}。`);
             } else if (job.status === "processing") {
               els.callState.textContent = "已收音，小七正在思考";
               setVoiceStatus("小七麦克风已关闭，正在转写并生成回复。");
+            } else if (job.status === "streaming") {
+              els.callState.textContent = "首句语音正在准备";
+              setVoiceStatus("小七正在准备第一句语音。");
             } else if (job.status === "complete") {
               const result = job.result || {};
               if (!String(result.transcript || "").trim()) {
@@ -1110,14 +1196,17 @@
                 throw callError("没有识别到清晰语音", "no_speech");
               }
               throw callError(message, "pi_record_failed");
+            } else if (job.status === "cancelled") {
+              throw new DOMException("语音模式已结束", "AbortError");
             }
 
-            await waitForCallPoll(job.status === "processing" ? 1000 : 500, signal);
+            await waitForCallPoll(["processing", "streaming"].includes(job.status) ? 250 : 500, signal);
           }
           throw new DOMException("语音模式已结束", "AbortError");
         } finally {
           signal.removeEventListener("abort", requestStop);
-          if (signal.aborted) requestStop();
+          const stopping = requestStop();
+          if (stopping && !signal.aborted) await drainPiCallJob(jobId, signal, stopping);
         }
       }
 
@@ -1430,7 +1519,7 @@
           if (!sessionId) {
             throw callError("语音会话丢失，请重新开启语音", "session_missing", { fatal: true });
           }
-          if (turn.kind === "pi_reply") {
+          if (["pi_reply", "pi_stream"].includes(turn.kind)) {
             data = turn.data;
           } else if (turn.kind === "transcript") {
             data = await requestJSON("/api/respond", {
@@ -1450,7 +1539,7 @@
             data = await requestJSON("/api/converse", { method: "POST", body: form, signal });
           }
 
-          applySessionPayload(data);
+          if (data.session) applySessionPayload(data);
           setCallUiLock(true);
           els.transcriptPreview.textContent = data.transcript || turn.transcript || "";
           return data;
@@ -1472,7 +1561,82 @@
         }
       }
 
+      function piStreamingSegments(job) {
+        const live = Array.isArray(job?.segments) ? job.segments : [];
+        const completed = Array.isArray(job?.result?.audio_segments) ? job.result.audio_segments : [];
+        return (live.length ? live : completed)
+          .filter((segment) => segment && segment.audio_url)
+          .map((segment, index) => ({
+            ...segment,
+            sequence: Number.isFinite(Number(segment.sequence)) ? Number(segment.sequence) : index,
+          }))
+          .sort((left, right) => left.sequence - right.sequence);
+      }
+
+      async function playPiStreamingReply(data, { signal }) {
+        const jobId = String(data?.stream_job_id || "");
+        if (!jobId) throw callError("小七没有返回流式语音任务", "reply_audio_missing");
+
+        let job = data.initial_job || {};
+        const played = new Set();
+        let stopPromise;
+        const requestStop = () => {
+          if (!piCallJobFinished(job) && !stopPromise) stopPromise = stopPiCallJob(jobId);
+          return stopPromise;
+        };
+        signal.addEventListener("abort", requestStop, { once: true });
+
+        try {
+          while (!signal.aborted) {
+            const segments = piStreamingSegments(job);
+            for (const segment of segments) {
+              if (played.has(segment.sequence)) continue;
+              els.callState.textContent = `小七正在播放第 ${segment.sequence + 1} 句`;
+              setVoiceStatus(
+                `回答正在通过${state.playTarget === "pi" ? "小七音箱" : "浏览器扬声器"}播放，后续内容同时生成中。`,
+                "ok",
+              );
+              if (!callAudio) callAudio = new Audio();
+              await playAudio(segment.audio_url, {
+                audioElement: callAudio,
+                signal,
+                waitForCompletion: true,
+              });
+              played.add(segment.sequence);
+            }
+
+            if (job.status === "complete") {
+              const result = job.result || {};
+              if (result.session) applySessionPayload(result);
+              els.transcriptPreview.textContent = result.transcript || job.transcript || data.transcript || "";
+              return result;
+            }
+            if (job.status === "error") {
+              throw callError(String(job.error || "小七流式语音生成失败"), "pi_record_failed");
+            }
+            if (job.status === "cancelled") {
+              throw new DOMException("语音模式已结束", "AbortError");
+            }
+
+            await waitForCallPoll(250, signal);
+            job = await requestJSON(`/api/pi-record/${encodeURIComponent(jobId)}`, {
+              signal,
+              timeoutMs: 12000,
+            });
+          }
+          throw new DOMException("语音模式已结束", "AbortError");
+        } finally {
+          signal.removeEventListener("abort", requestStop);
+          const stopping = requestStop();
+          if (stopping && !signal.aborted) await drainPiCallJob(jobId, signal, stopping);
+        }
+      }
+
       async function playCallReply(data, { signal }) {
+        if (data?.stream_job_id) {
+          await playPiStreamingReply(data, { signal });
+          return;
+        }
         if (!data || !data.audio_url) {
           throw callError("小七没有返回可播放的语音", "reply_audio_missing");
         }
@@ -1498,7 +1662,7 @@
           setBadge(els.voiceBadge, "语音中 · 正在听", "ok");
           setVoiceStatus(
             usePiInput
-              ? `正在使用小七麦克风收音，本轮最多 ${piCallTurnDuration()} 秒。`
+              ? `正在使用小七麦克风收音；${piCallEndpointSummary()}。`
               : "正在听你说话；说完保持安静约 1.1 秒即可自动发送。",
           );
           els.bar.style.width = "0%";
@@ -2004,6 +2168,7 @@
             body: {
               duration: activeDuration,
               session_id: recordingSessionId,
+              stream: false,
             },
           });
           piRecordJobId = data.job_id;

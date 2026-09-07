@@ -1,11 +1,23 @@
 import json
 import signal
+import wave
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import server
+
+
+def pcm_square_wave(amplitude: int, seconds: float, rate: int = 16000) -> bytes:
+    sample_count = max(0, round(seconds * rate))
+    if amplitude == 0:
+        return b"\0\0" * sample_count
+    positive = int(amplitude).to_bytes(2, "little", signed=True)
+    negative = int(-amplitude).to_bytes(2, "little", signed=True)
+    pairs, remainder = divmod(sample_count, 2)
+    return (positive + negative) * pairs + (positive if remainder else b"")
 
 
 def configure_tmp_app(monkeypatch, tmp_path):
@@ -132,10 +144,26 @@ def test_index_uses_xiaoqi_brand_and_visible_playback_controls(monkeypatch, tmp_
     assert "小七麦克风" in start_call
     assert "小七音箱" in start_call
     assert "waitForCompletion: true" in response.text
+    assert "piCallEndpointSummary" in response.text
+    assert "说完安静约" in response.text
+    assert "小七自动收句" in response.text
 
     capture_call = css_block(response.text, "async function captureCallTurn({ signal })")
     assert 'state.inputTarget === "pi"' in capture_call
     assert "capturePiCallTurn" in capture_call
+
+    capture_pi = css_block(response.text, "async function capturePiCallTurn({ signal })")
+    assert "stream: true" in capture_pi
+    assert 'kind: "pi_stream"' in capture_pi
+    assert '["processing", "streaming"]' in capture_pi
+
+    stream_playback = css_block(response.text, "async function playPiStreamingReply(data, { signal })")
+    assert "piStreamingSegments" in stream_playback
+    assert "waitForCompletion: true" in stream_playback
+    assert "stopPiCallJob" in stream_playback
+
+    manual_pi = css_block(response.text, "async function startPiRecording()")
+    assert "stream: false" in manual_pi
 
 
 def test_call_mode_asset_is_served_without_cache(monkeypatch, tmp_path):
@@ -279,6 +307,157 @@ def test_plain_speech_reply_strips_common_markdown():
     assert "- " not in reply
     assert "`" not in reply
     assert "*" not in reply
+
+
+def test_voice_reply_segmenter_emits_first_sentence_early_without_truncating_reply():
+    reply = "先给你结论。接下来这一段会继续详细说明原因，同时保留完整的长回复内容。最后再给出可以立即执行的建议！"
+    segmenter = server._VoiceReplySegmenter(first_limit=24, later_limit=32)
+    segments = []
+    for offset in range(0, len(reply), 7):
+        segments.extend(segmenter.feed(reply[offset : offset + 7]))
+    segments.extend(segmenter.finish())
+
+    assert segments[0] == "先给你结论。"
+    assert len(segments) >= 3
+    assert "".join(segments) == reply
+    assert all(len(segment) <= 32 for segment in segments)
+
+
+def test_deepseek_stream_yields_deltas_and_closes_stream(monkeypatch):
+    class Delta:
+        def __init__(self, content):
+            self.content = content
+
+    class Choice:
+        def __init__(self, content):
+            self.delta = Delta(content)
+
+    class Event:
+        def __init__(self, content):
+            self.choices = [Choice(content)]
+
+    class Stream:
+        def __init__(self):
+            self.events = iter([Event("第一句。"), Event(""), Event("第二句。")])
+            self.closed = False
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return next(self.events)
+
+        def close(self):
+            self.closed = True
+
+    class Completions:
+        def __init__(self, stream):
+            self.stream = stream
+            self.kwargs = None
+
+        def create(self, **kwargs):
+            self.kwargs = kwargs
+            return self.stream
+
+    stream = Stream()
+    completions = Completions(stream)
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    monkeypatch.setattr(
+        server,
+        "_deepseek_stream_settings",
+        lambda: {"model": "deepseek-v4-flash", "base_url": "https://example.invalid", "api_key": "secret"},
+    )
+    monkeypatch.setattr(server, "_deepseek_client", lambda settings: client)
+
+    reply = "".join(server._stream_deepseek_reply("测试提示"))
+
+    assert reply == "第一句。第二句。"
+    assert completions.kwargs == {
+        "model": "deepseek-v4-flash",
+        "messages": [{"role": "user", "content": "测试提示"}],
+        "stream": True,
+    }
+    assert stream.closed is True
+
+
+def test_deepseek_stream_redacts_api_key_from_errors(monkeypatch):
+    class BrokenCompletions:
+        def create(self, **kwargs):
+            raise RuntimeError("provider rejected test-secret-key")
+
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": BrokenCompletions()})()})()
+    monkeypatch.setattr(
+        server,
+        "_deepseek_stream_settings",
+        lambda: {
+            "model": "deepseek-v4-flash",
+            "base_url": "https://example.invalid",
+            "api_key": "test-secret-key",
+        },
+    )
+    monkeypatch.setattr(server, "_deepseek_client", lambda settings: client)
+
+    with pytest.raises(server.HTTPException) as raised:
+        list(server._stream_deepseek_reply("测试"))
+
+    assert raised.value.status_code == 502
+    assert "test-secret-key" not in str(raised.value.detail)
+    assert "[redacted]" in str(raised.value.detail)
+
+
+def test_streaming_voice_job_saves_full_reply_after_exposing_segments(monkeypatch, tmp_path):
+    client, audio_cache = configure_tmp_app(monkeypatch, tmp_path)
+    created = client.post("/api/sessions", json={"title": "流式语音测试"}).json()["session"]
+    job_id = "streamjob"
+    with server.PI_RECORD_LOCK:
+        server.PI_RECORD_JOBS[job_id] = {
+            "id": job_id,
+            "status": "processing",
+            "stage": "transcribing",
+            "duration": 8,
+            "elapsed": 2,
+            "session_id": created["id"],
+            "started_at": server._now(),
+            "started_monotonic": server.time.monotonic(),
+            "completed_at": None,
+            "stop_requested": False,
+            "segments": [],
+            "timing": {},
+        }
+
+    chunks = ["先给你结论。", "原因我会继续说清楚。", "最后给你一个可执行建议。"]
+    monkeypatch.setattr(
+        server,
+        "_iter_streaming_voice_reply",
+        lambda session, user_text, is_cancelled: iter(chunks),
+    )
+    generated = []
+
+    def fake_speak(text):
+        path = audio_cache / f"segment-{len(generated)}.mp3"
+        path.write_bytes(f"audio:{text}".encode())
+        generated.append(text)
+        return {"audio_url": f"/audio/{path.name}", "tts": {"provider": "fake"}}
+
+    monkeypatch.setattr(server, "_speak_reply", fake_speak)
+    monkeypatch.setattr(server, "_combine_voice_segments", lambda segments: "/audio/combined.mp3")
+
+    result = server._stream_voice_answer_for_pi_job(job_id, "请详细回答", 2, created["id"])
+
+    assert result["streaming"] is True
+    assert result["reply"] == "".join(chunks)
+    assert result["audio_url"] == "/audio/combined.mp3"
+    assert [segment["text"] for segment in result["audio_segments"]] == chunks
+    assert generated == chunks
+    with server.PI_RECORD_LOCK:
+        job = server.PI_RECORD_JOBS[job_id]
+        assert job["status"] == "streaming"
+        assert job["transcript"] == "请详细回答"
+        assert "first_audio_ready_ms" in job["timing"]
+        assert "generation_completed_ms" in job["timing"]
+    saved = client.get(f"/api/sessions/{created['id']}").json()["session"]
+    assert saved["messages"][-1]["content"] == "".join(chunks)
+    assert len(saved["messages"][-1]["audio_segments"]) == 3
 
 
 def test_normalise_message_replaces_stored_denied_command_output():
@@ -850,6 +1029,262 @@ def test_pi_record_autodetects_capture_hardware(monkeypatch):
     assert status["ready"] is True
     assert status["device"] == "plughw:CARD=Mic,DEV=0"
     assert status["candidate_devices"] == ["plughw:CARD=Mic,DEV=0"]
+    assert status["endpointing"]["enabled"] is True
+    assert status["endpointing"]["silence_seconds"] == 1.0
+    assert status["endpointing"]["min_rms"] == 0.0052
+    assert status["endpointing"]["min_speech_seconds"] == 0.3
+    assert status["endpointing"]["noise_multiplier"] == 1.6
+    assert status["endpointing"]["release_multiplier"] == 1.35
+
+
+def test_pi_voice_endpoint_detector_stops_after_speech_and_silence():
+    detector = server._PiVoiceEndpointDetector(
+        rate=16000,
+        channels=1,
+        silence_seconds=1.0,
+        no_speech_seconds=5.0,
+        min_speech_seconds=0.2,
+        min_rms=0.008,
+        noise_multiplier=2.5,
+        calibration_seconds=0.25,
+    )
+
+    assert detector.feed(pcm_square_wave(0, 0.25)) is None
+    assert detector.feed(pcm_square_wave(5000, 0.3)) is None
+    assert detector.speech_detected is True
+    assert detector.feed(pcm_square_wave(0, 1.1)) == "silence"
+    assert 1.5 <= detector.elapsed_seconds < 1.7
+
+
+def test_pi_voice_endpoint_detector_bounds_empty_turn():
+    detector = server._PiVoiceEndpointDetector(
+        rate=16000,
+        channels=1,
+        silence_seconds=1.0,
+        no_speech_seconds=0.6,
+        min_speech_seconds=0.2,
+        min_rms=0.008,
+        noise_multiplier=2.5,
+        calibration_seconds=0.2,
+    )
+
+    assert detector.feed(pcm_square_wave(0, 0.7)) == "no_speech"
+    assert detector.speech_detected is False
+
+
+def test_pi_voice_endpoint_detector_accepts_measured_low_gain_pi_signal():
+    detector = server._PiVoiceEndpointDetector(
+        rate=16000,
+        channels=1,
+        silence_seconds=1.0,
+        no_speech_seconds=5.0,
+        min_speech_seconds=0.2,
+        min_rms=0.0052,
+        noise_multiplier=1.6,
+        release_multiplier=1.35,
+        calibration_seconds=0.25,
+    )
+
+    # XiaoQi's measured ambient RMS is about 0.011. The trigger must stay
+    # above that floor, while normal nearby speech around 0.027 still starts
+    # the turn and the measured ambient level releases it again.
+    assert detector.feed(pcm_square_wave(360, 0.25)) is None
+    assert detector.feed(pcm_square_wave(900, 0.3)) is None
+    assert detector.speech_detected is True
+    assert 0.017 <= detector.trigger_threshold <= 0.018
+    assert detector.feed(pcm_square_wave(360, 1.1)) == "silence"
+
+
+def test_pi_voice_endpoint_detector_does_not_calibrate_early_speech_away():
+    detector = server._PiVoiceEndpointDetector(
+        rate=16000,
+        channels=1,
+        silence_seconds=1.0,
+        no_speech_seconds=5.0,
+        min_speech_seconds=0.2,
+        min_rms=0.0052,
+        noise_multiplier=1.6,
+        release_multiplier=1.35,
+        calibration_seconds=0.25,
+    )
+
+    assert detector.feed(pcm_square_wave(900, 0.5)) is None
+    assert detector.speech_detected is True
+    assert 0.020 <= detector.trigger_threshold <= 0.021
+    assert detector.feed(pcm_square_wave(360, 1.1)) == "silence"
+
+
+def test_pi_voice_endpoint_detector_ignores_short_measured_noise_spikes():
+    detector = server._PiVoiceEndpointDetector(
+        rate=16000,
+        channels=1,
+        silence_seconds=1.0,
+        no_speech_seconds=1.0,
+        min_speech_seconds=0.2,
+        min_rms=0.0052,
+        noise_multiplier=1.6,
+        release_multiplier=1.35,
+        calibration_seconds=0.25,
+    )
+
+    assert detector.feed(pcm_square_wave(360, 0.25)) is None
+    for _ in range(3):
+        assert detector.feed(pcm_square_wave(650, 0.15)) is None
+        assert detector.feed(pcm_square_wave(360, 0.05)) is None
+    assert detector.speech_detected is False
+
+
+def test_pi_voice_endpoint_detector_does_not_treat_measured_room_noise_as_speech():
+    detector = server._PiVoiceEndpointDetector(
+        rate=16000,
+        channels=1,
+        silence_seconds=1.0,
+        no_speech_seconds=0.8,
+        min_speech_seconds=0.2,
+        min_rms=0.0052,
+        noise_multiplier=1.6,
+        release_multiplier=1.35,
+        calibration_seconds=0.25,
+    )
+
+    assert detector.feed(pcm_square_wave(370, 0.9)) == "no_speech"
+    assert detector.speech_detected is False
+    assert detector.trigger_threshold > 0.017
+
+
+def test_pi_record_vad_interrupts_arecord_and_finalizes_wav(monkeypatch, tmp_path):
+    recorded_audio = tmp_path / "pi-record.wav"
+    raw_audio = tmp_path / "pi-record.pcm"
+    procs = []
+
+    class FakeProcess:
+        def __init__(self, command, **kwargs):
+            self.command = command
+            self.returncode = None
+            self.sent_signal = None
+            Path(command[-1]).write_bytes(
+                pcm_square_wave(0, 0.3)
+                + pcm_square_wave(5000, 0.3)
+                + pcm_square_wave(0, 1.2)
+            )
+            procs.append(self)
+
+        def poll(self):
+            return self.returncode
+
+        def send_signal(self, value):
+            self.sent_signal = value
+            self.returncode = -int(value)
+
+        def terminate(self):
+            self.returncode = -15
+
+        def kill(self):
+            self.returncode = -9
+
+        def communicate(self, timeout=None):
+            if self.returncode is None:
+                self.returncode = 0
+            return "", ""
+
+    monkeypatch.setattr(server, "_find_arecord", lambda: "/usr/bin/arecord")
+    monkeypatch.setattr(server, "_pi_record_candidate_devices", lambda recorder: ["plughw:CARD=Device,DEV=0"])
+    monkeypatch.setattr(server, "_create_pi_record_tempfile", lambda: recorded_audio)
+    monkeypatch.setattr(server, "_create_pi_record_rawfile", lambda: raw_audio)
+    monkeypatch.setattr(server.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(server.time, "sleep", lambda seconds: None)
+
+    with server.PI_RECORD_LOCK:
+        server.PI_RECORD_JOBS["vadjob"] = {"stop_requested": False, "proc": None}
+    try:
+        result = server._record_pi_audio(8, job_id="vadjob")
+        with server.PI_RECORD_LOCK:
+            job = dict(server.PI_RECORD_JOBS["vadjob"])
+    finally:
+        with server.PI_RECORD_LOCK:
+            server.PI_RECORD_JOBS.pop("vadjob", None)
+
+    assert result == recorded_audio
+    assert procs[0].sent_signal == signal.SIGINT
+    assert job["speech_detected"] is True
+    assert job["endpoint_reason"] == "silence"
+    assert job["vad_peak_rms"] > job["vad_trigger_threshold"]
+    assert not raw_audio.exists()
+    with wave.open(str(recorded_audio), "rb") as wav:
+        assert wav.getnchannels() == 1
+        assert wav.getframerate() == 16000
+        assert 1.7 <= wav.getnframes() / wav.getframerate() <= 1.9
+
+
+@pytest.mark.parametrize("duration", [2, 5])
+@pytest.mark.parametrize("manual_stop", [False, True])
+def test_pi_record_job_handles_silence_in_final_pcm_read(monkeypatch, tmp_path, duration, manual_stop):
+    configure_tmp_app(monkeypatch, tmp_path)
+    recorded_audio = tmp_path / "final-read.wav"
+    raw_audio = tmp_path / "final-read.pcm"
+    answered = []
+    job_id = "final-read-job"
+
+    class FakeProcess:
+        def __init__(self, command, **kwargs):
+            self.returncode = None
+            self.polls = 0
+            raw_audio.write_bytes(pcm_square_wave(0, duration - 0.1))
+
+        def poll(self):
+            self.polls += 1
+            if self.polls == 2:
+                with raw_audio.open("ab") as handle:
+                    handle.write(pcm_square_wave(0, 0.1))
+                if manual_stop:
+                    with server.PI_RECORD_LOCK:
+                        server.PI_RECORD_JOBS[job_id]["stop_requested"] = True
+                self.returncode = 0
+            return self.returncode
+
+        def communicate(self, timeout=None):
+            return "", ""
+
+    def answer_audio(path, recorded_duration, session_id):
+        answered.append(path)
+        assert path.is_file()
+        return {"reply": "manual stop reply", "transcript": "manual transcript"}
+
+    monkeypatch.setattr(server, "PI_RECORD_VAD_ENABLED", True)
+    monkeypatch.setattr(server, "PI_RECORD_VAD_NO_SPEECH_SECONDS", 5.0)
+    monkeypatch.setattr(server, "PI_RECORD_RATE", 16000)
+    monkeypatch.setattr(server, "PI_RECORD_CHANNELS", 1)
+    monkeypatch.setattr(server, "_find_arecord", lambda: "/stub/arecord")
+    monkeypatch.setattr(server, "_pi_record_candidate_devices", lambda recorder: ["stub"])
+    monkeypatch.setattr(server, "_create_pi_record_tempfile", lambda: recorded_audio)
+    monkeypatch.setattr(server, "_create_pi_record_rawfile", lambda: raw_audio)
+    monkeypatch.setattr(server, "_answer_audio_path", answer_audio)
+    monkeypatch.setattr(server.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(server.time, "sleep", lambda seconds: None)
+    with server.PI_RECORD_LOCK:
+        server.PI_RECORD_JOBS[job_id] = {
+            "id": job_id,
+            "duration": duration,
+            "started_monotonic": server.time.monotonic(),
+            "stop_requested": False,
+        }
+
+    server._run_pi_record_job(job_id)
+    job = server._get_pi_record_job(job_id)
+
+    assert job["speech_detected"] is False
+    if manual_stop:
+        assert job["endpoint_reason"] == "manual"
+        assert job["status"] == "complete"
+        assert answered == [recorded_audio]
+    else:
+        assert job["endpoint_reason"] == "no_speech"
+        assert job["status"] == "error"
+        assert job["status_code"] == 400
+        assert job["error"] == "No speech was detected"
+        assert answered == [], "Silent EOF must not reach STT, LLM, or TTS"
+    assert not recorded_audio.exists()
+    assert not raw_audio.exists()
 
 
 def test_pi_record_endpoint_transcribes_and_cleans_audio(monkeypatch, tmp_path):
@@ -921,6 +1356,7 @@ def test_pi_record_stop_endpoint_signals_running_job(monkeypatch, tmp_path):
 
 def test_pi_record_honors_stop_requested_before_process_attaches(monkeypatch, tmp_path):
     recorded_audio = tmp_path / "pi-record.wav"
+    raw_audio = tmp_path / "pi-record.pcm"
     procs = []
 
     class FakeProcess:
@@ -940,12 +1376,13 @@ def test_pi_record_honors_stop_requested_before_process_attaches(monkeypatch, tm
             self.sent_signal = "terminate"
 
         def communicate(self, timeout=None):
-            Path(self.command[-1]).write_bytes(b"RIFF" + b"\0" * 64)
+            Path(self.command[-1]).write_bytes(b"\0\1" * 64)
             return "", ""
 
     monkeypatch.setattr(server, "_find_arecord", lambda: "/usr/bin/arecord")
     monkeypatch.setattr(server, "_pi_record_candidate_devices", lambda recorder: ["plughw:CARD=Device,DEV=0"])
     monkeypatch.setattr(server, "_create_pi_record_tempfile", lambda: recorded_audio)
+    monkeypatch.setattr(server, "_create_pi_record_rawfile", lambda: raw_audio)
     monkeypatch.setattr(server.subprocess, "Popen", FakeProcess)
 
     with server.PI_RECORD_LOCK:
