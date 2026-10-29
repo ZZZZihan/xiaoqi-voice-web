@@ -2817,6 +2817,11 @@ class VoiceJobCancelled(RuntimeError):
     pass
 
 
+def _check_voice_cancelled(is_cancelled: Callable[[], bool] | None) -> None:
+    if is_cancelled and is_cancelled():
+        raise VoiceJobCancelled("Voice job was cancelled")
+
+
 def _dotenv_value(path: Path, name: str) -> str | None:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -3135,7 +3140,9 @@ def _answer_message(
     speak: bool = False,
     kind: str = "text",
     duration: int = 0,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    _check_voice_cancelled(is_cancelled)
     user_text = str(user_text or "").strip()
     if not user_text:
         raise HTTPException(status_code=400, detail="Message is empty")
@@ -3144,9 +3151,11 @@ def _answer_message(
 
     session = _prepare_session(session_id)
     direct_voice = kind == "voice" and DIRECT_HERMES_VOICE
+    _check_voice_cancelled(is_cancelled)
     reply: str | None = None if direct_voice else _handle_reminder_intent(user_text)
     external_context: str | None = None
     if reply is None and not direct_voice:
+        _check_voice_cancelled(is_cancelled)
         external_context = _build_briefing_context_for_text(user_text)
         try:
             if external_context is None:
@@ -3167,12 +3176,14 @@ def _answer_message(
                 external_context=external_context,
             )
         )
+        _check_voice_cancelled(is_cancelled)
         reply = _run_hermes(
             prompt
         )
 
     speech: dict[str, Any] = {"audio_url": None, "tts": None}
     if speak:
+        _check_voice_cancelled(is_cancelled)
         reply = _plain_speech_reply(reply)
         speech = _speak_reply(reply)
 
@@ -3199,6 +3210,7 @@ def _answer_message(
     if speech.get("tts"):
         assistant_message["tts"] = speech["tts"]
 
+    _check_voice_cancelled(is_cancelled)
     saved_session = _append_exchange(session["id"], user_message, assistant_message, user_text)
     return {
         "session_id": saved_session["id"],
@@ -3231,23 +3243,34 @@ def _parse_tts_result(raw: str) -> dict[str, Any]:
     return data
 
 
-def _answer_transcript(transcript: str, duration: int, session_id: str | None = None) -> dict[str, Any]:
+def _answer_transcript(
+    transcript: str, duration: int, session_id: str | None = None, *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
     transcript = transcript.strip()
     if not transcript:
         raise HTTPException(status_code=400, detail="No speech was transcribed")
 
-    result = _answer_message(session_id, transcript, speak=True, kind="voice", duration=duration)
+    _check_voice_cancelled(is_cancelled)
+    kwargs = {"is_cancelled": is_cancelled} if is_cancelled else {}
+    result = _answer_message(session_id, transcript, speak=True, kind="voice", duration=duration, **kwargs)
     result["duration"] = duration
     result["transcript"] = transcript
     return result
 
 
-def _answer_audio_path(audio_path: Path, duration: int, session_id: str | None = None) -> dict[str, Any]:
+def _answer_audio_path(
+    audio_path: Path, duration: int, session_id: str | None = None, *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    _check_voice_cancelled(is_cancelled)
     transcription = _transcribe_audio(str(audio_path))
+    _check_voice_cancelled(is_cancelled)
     if not transcription.get("success"):
         raise HTTPException(status_code=500, detail=transcription.get("error") or "Transcription failed")
     transcript = str(transcription.get("transcript") or "").strip()
-    return _answer_transcript(transcript, duration, session_id)
+    kwargs = {"is_cancelled": is_cancelled} if is_cancelled else {}
+    return _answer_transcript(transcript, duration, session_id, **kwargs)
 
 
 def _create_pi_record_tempfile() -> Path:
@@ -3710,9 +3733,11 @@ def _iter_streaming_voice_reply(
     *,
     is_cancelled: Callable[[], bool],
 ) -> Iterator[str]:
+    _check_voice_cancelled(is_cancelled)
     reply = _handle_reminder_intent(user_text)
     external_context: str | None = None
     if reply is None:
+        _check_voice_cancelled(is_cancelled)
         external_context = _build_briefing_context_for_text(user_text)
         try:
             if external_context is None:
@@ -3732,6 +3757,7 @@ def _iter_streaming_voice_reply(
         voice=True,
         external_context=external_context,
     )
+    _check_voice_cancelled(is_cancelled)
     yield from _stream_deepseek_reply(prompt, is_cancelled=is_cancelled)
 
 
@@ -3851,6 +3877,7 @@ def _stream_voice_answer_for_pi_job(
     transcript = str(transcript or "").strip()
     if not transcript:
         raise HTTPException(status_code=400, detail="No speech was transcribed")
+    _check_voice_cancelled(lambda: _pi_record_job_cancelled(job_id))
     session = _prepare_session(session_id)
     segmenter = _VoiceReplySegmenter(
         STREAMING_VOICE_FIRST_SEGMENT_CHARS,
@@ -3903,6 +3930,7 @@ def _stream_voice_answer_for_pi_job(
         raise HTTPException(status_code=500, detail="No spoken reply segments were generated")
 
     combined_audio_url = _combine_voice_segments(segments)
+    _check_voice_cancelled(is_cancelled)
     result = _save_voice_exchange(
         session,
         transcript,
@@ -3929,6 +3957,8 @@ def _run_pi_record_job(job_id: str) -> None:
     audio_path: Path | None = None
     try:
         audio_path = _record_pi_audio(duration, job_id=job_id)
+        is_cancelled = (lambda: _pi_record_job_cancelled(job_id)) if stream_requested else None
+        _check_voice_cancelled(is_cancelled)
         elapsed = int(max(1, round(time.monotonic() - started_monotonic)))
         with PI_RECORD_LOCK:
             job = PI_RECORD_JOBS.get(job_id)
@@ -3941,6 +3971,7 @@ def _run_pi_record_job(job_id: str) -> None:
 
         if stream_requested and STREAMING_VOICE_ENABLED:
             transcription = _transcribe_audio(str(audio_path))
+            _check_voice_cancelled(is_cancelled)
             if not transcription.get("success"):
                 raise HTTPException(status_code=500, detail=transcription.get("error") or "Transcription failed")
             transcript = str(transcription.get("transcript") or "").strip()
@@ -3952,6 +3983,7 @@ def _run_pi_record_job(job_id: str) -> None:
                     str(session_id or "").strip() or None,
                 )
             except StreamingVoiceUnavailable:
+                _check_voice_cancelled(is_cancelled)
                 with PI_RECORD_LOCK:
                     job = PI_RECORD_JOBS.get(job_id)
                     if job:
@@ -3959,9 +3991,13 @@ def _run_pi_record_job(job_id: str) -> None:
                         job["stage"] = "generating"
                         job["transcript"] = transcript
                         _pi_job_mark(job, "asr_completed_ms")
-                result = _answer_transcript(transcript, min(duration, elapsed), str(session_id or "").strip() or None)
+                result = _answer_transcript(
+                    transcript, min(duration, elapsed), str(session_id or "").strip() or None,
+                    is_cancelled=is_cancelled,
+                )
         else:
-            result = _answer_audio_path(audio_path, min(duration, elapsed), str(session_id or "").strip() or None)
+            kwargs = {"is_cancelled": is_cancelled} if is_cancelled else {}
+            result = _answer_audio_path(audio_path, min(duration, elapsed), str(session_id or "").strip() or None, **kwargs)
         with PI_RECORD_LOCK:
             job = PI_RECORD_JOBS.get(job_id)
             if job:

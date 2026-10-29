@@ -597,8 +597,7 @@
           els.voiceHint.textContent = "小七麦克风当前不可用，请刷新设备状态或切回浏览器麦克风。";
         } else if (!window.isSecureContext) {
           els.voiceHint.className = "voice-hint warn";
-          els.voiceHint.textContent =
-            "当前页面不是安全上下文，浏览器已禁用麦克风。请打开 https://pi5.local:8787/，或使用证书覆盖的局域网 IP；不要绕过证书警告。";
+          els.voiceHint.textContent = microphoneUnavailableMessage();
         } else if (!browserMicrophoneAvailable()) {
           els.voiceHint.className = "voice-hint err";
           els.voiceHint.textContent = "当前浏览器没有提供可用的麦克风接口。";
@@ -956,7 +955,7 @@
 
       function microphoneUnavailableMessage() {
         if (!window.isSecureContext) {
-          return "当前页面不是安全上下文，浏览器不会开放麦克风。请打开 https://pi5.local:8787/，或使用证书覆盖的局域网 IP；不要绕过证书警告。";
+          return "当前通过局域网 HTTP 访问，浏览器麦克风不可用；可以选择小七本机麦克风（若可用）。若要使用此设备的麦克风，需要另行启用可信 HTTPS。";
         }
         return "当前浏览器不支持麦克风录音";
       }
