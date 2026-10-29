@@ -133,7 +133,9 @@ def test_index_uses_xiaoqi_brand_and_visible_playback_controls(monkeypatch, tmp_
         '<script src="/ui-motion.js"></script>'
     )
     assert "http://localhost:18787" not in response.text
-    assert "https://pi5.local:8787/" in response.text
+    assert "浏览器麦克风不可用" in response.text
+    assert "可以选择小七本机麦克风（若可用）" in response.text
+    assert "需要另行启用可信 HTTPS" in response.text
     assert "浏览器转写不可用，继续使用后端转写。" in response.text
     assert response.text.index('class="side-stack"') < response.text.index('class="panel chat-panel"')
     assert response.text.index('class="panel chat-panel"') < response.text.index('class="panel sidebar"')

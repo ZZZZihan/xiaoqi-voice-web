@@ -47,13 +47,13 @@ HERMES_AGENT=/home/pi/.hermes/hermes-agent \
 scripts/run-voice-web.sh
 ```
 
-With HTTPS certs in `certs/key.pem` and `certs/cert.pem`, the script enables TLS automatically. The current trusted LAN deployment is reachable at:
+The script serves HTTP unless TLS is configured. It enables TLS when both `VOICE_WEB_SSL_KEYFILE` and `VOICE_WEB_SSL_CERTFILE` are set, or when `certs/key.pem` and `certs/cert.pem` exist. The most recent recorded LAN endpoint, following the 2026-09-20 HTTP rollback, is:
 
 ```text
-https://pi5.local:8787/
+http://192.168.5.12:8787/
 ```
 
-The current-IP fallback is `https://192.168.5.12:8787/`. HTTPS provides transport encryption and the browser secure context required for microphone access; it does not add application authentication, so this service must remain limited to a trusted LAN and must not be exposed to the public internet.
+This is a dated deployment record; the Raspberry Pi's current endpoint was not rechecked during source preparation. LAN HTTP supports text chat and backend audio when the Pi devices and services are ready, but browsers do not expose their microphones to it. Trusted HTTPS provides the secure context required for browser microphone access. The earlier HTTPS setup is retained in `docs/TRUSTED_HTTPS.md`. Neither mode adds application authentication, so keep the service on a trusted LAN.
 
 Install as a user systemd service on the Pi:
 
@@ -70,6 +70,7 @@ Environment variables:
 - `HERMES_AGENT`: Hermes agent checkout, default `$HERMES_HOME/hermes-agent`.
 - `VOICE_WEB_HOST`: bind host, default `0.0.0.0`.
 - `VOICE_WEB_PORT`: bind port, default `8787`.
+- `VOICE_WEB_SSL_KEYFILE` / `VOICE_WEB_SSL_CERTFILE`: optional TLS key and certificate paths; set both to enable explicit HTTPS configuration.
 - `VOICE_WEB_HERMES_TIMEOUT`: Hermes chat timeout in seconds, default `300`.
 - `VOICE_WEB_STT_TIMEOUT`: backend STT timeout in seconds, default `180`.
 - `VOICE_WEB_INLINE_LOCAL_STT`: use an in-process cached faster-whisper model for `stt.provider: local`, default `true`.
@@ -114,15 +115,9 @@ The call mode is deliberately half-duplex for the first usable version. The sele
 
 No-speech turns restart listening without consuming the error budget. Three consecutive network, model, transcription, or playback failures end the call; microphone permission failures end it immediately. `call-mode.js` owns this state machine and exposes a small dependency-injected interface, while `index.html` provides the browser microphone, Hermes API, playback, and UI adapters.
 
-Browser microphone access requires a secure context. The Raspberry Pi now serves the phone-facing application through dedicated LAN HTTPS at:
+Ending a Raspberry Pi call requests cancellation at processing-stage boundaries, including when streaming is disabled or the provider falls back to a full-answer reply. Once cancellation is observed, later transcription, generation, synthesis, and exchange-saving stages are skipped. A manual recording's stop button still submits the captured audio. External calls already in progress must return or time out, completed reminder actions are not undone, and a Pi speaker segment already playing may finish after hangup.
 
-```text
-https://pi5.local:8787/
-```
-
-The current-IP fallback is `https://192.168.5.12:8787/`. A phone must first install and fully trust `docs/trusted-https/xiaoqi-local-ca.cer`; do not bypass a browser certificate warning. Full phone setup, certificate fingerprints, expiry, verification, and one-command rollback are documented in `docs/TRUSTED_HTTPS.md`.
-
-The former `http://localhost` SSH-tunnel workaround is no longer the primary path: port `8787` now speaks TLS and the certificate identifies `pi5.local`/the LAN IP, not `localhost`. Use the direct trusted LAN URL for phone and tablet access.
+Browser microphone access requires a secure context. On LAN HTTP, select XiaoQi's Raspberry Pi microphone when its backend is ready, or configure trusted HTTPS to use the browser microphone. The 2026-09-20 rollback record uses the HTTP URL shown above; changing `http://` to `https://` only works after the service has actually been configured for TLS. The previous trusted HTTPS setup, certificate details, and rollback procedure are documented in `docs/TRUSTED_HTTPS.md`.
 
 This version does not include a wake word, full-duplex echo cancellation, or barge-in while XiaoQi is speaking. Those are later-stage latency and audio-pipeline improvements, not hidden claims of the basic mode.
 
@@ -170,7 +165,7 @@ If `snapshot_download` stalls on large Xet files, use a resumable or range-capab
 - `POST /api/converse`: upload audio for backend STT.
 - `POST /api/pi-record`: record audio on the Raspberry Pi with silence endpointing up to the requested maximum duration, transcribe it, and generate a spoken reply. Body: `{ "session_id": "...", "duration": 30 }`.
 - `POST /api/pi-record/start`: start a stoppable Raspberry Pi recording job. Body: `{ "session_id": "...", "duration": 30, "stream": true }`; call mode enables streaming while the manual record button leaves it off.
-- `POST /api/pi-record/{job_id}/stop`: stop an active Raspberry Pi recording job; the captured audio is then transcribed.
+- `POST /api/pi-record/{job_id}/stop`: stop an active Raspberry Pi recording job. Manual recordings submit the captured audio; call-mode jobs started with `stream: true` cancel remaining processing, even when streaming is disabled or unavailable.
 - `GET /api/pi-record/{job_id}`: poll a Raspberry Pi recording job through `recording`, `processing`, `streaming`, and finally `complete`, `cancelled`, or `error`. Ready sentence audio appears incrementally in `segments`.
 - `POST /api/pi-playback`: play a generated `/audio/...` file on the server/Raspberry Pi speaker. Body: `{ "audio_url": "/audio/reply.ogg", "wait": false }`. Call mode sends `wait: true` to preserve half-duplex behavior.
 - `GET /audio/{path}`: serve generated audio from Hermes audio cache.
@@ -191,14 +186,14 @@ To prepare a checksummed deployment bundle locally without contacting or changin
 scripts/build-deployment-bundle.sh
 ```
 
-The command writes a timestamped directory, tar archive, and archive checksum under `dist/`. The bundle contains the runtime files, both service scripts, `README.md`, `BUILD-INFO.txt`, and `SHA256SUMS` for offline verification.
+The command requires a clean worktree and writes a timestamped directory, tar archive, and archive checksum under `dist/`. The bundle contains the runtime files and dependency manifest, both service scripts, README and acceptance/HTTPS documentation, public CA certificates, `BUILD-INFO.txt`, and `SHA256SUMS` for offline verification.
 
 ## Deployment Checklist
 
-1. Copy `app.css`, `ui-motion.js`, `call-mode.js`, `server.py`, `requirements.txt`, and `scripts/run-voice-web.sh` first. Do not replace `index.html` yet; the running process does not know the new asset routes until restart.
+1. Copy `app.css`, `ui-motion.js`, `call-mode.js`, `server.py`, `requirements.txt`, and `scripts/run-voice-web.sh` first. Install the runtime requirements in the service's Python environment. Do not replace `index.html` yet; the running process does not know the new asset routes until restart.
 2. Confirm Hermes agent is installed and `HERMES_HOME` / `HERMES_AGENT` point to it.
 3. For an existing installation, run `systemctl --user restart hermes-voice-web.service`, then require `systemctl --user is-active hermes-voice-web.service` to return `active`. Do not rely on `enable --now` to restart an already-active service.
-4. Copy `index.html` last, then verify `/`, `/app.css`, and `/ui-motion.js` return 200 with the expected MIME types, `Cache-Control: no-store`, and the deployed file hashes.
+4. Copy `index.html` last, then verify `/`, `/app.css`, `/call-mode.js`, and `/ui-motion.js` return 200 with the expected MIME types, `Cache-Control: no-store`, and the deployed file hashes.
 5. Open `/health` and verify:
    - `ok: true`
    - Hermes CLI path is present
@@ -213,9 +208,9 @@ The command writes a timestamped directory, tar archive, and archive checksum un
 
 ## Current Acceptance Status
 
-The 2026-09-07 local source acceptance covers Pi silence endpointing, DeepSeek streaming, and the cleanup fixes found during review, based on commit `c7f7ec7848a376c5d08a0f4403bdbe4ff57e79a5`. All 63 Python tests and 20 call-mode/page-adapter tests passed, along with compilation, script parsing, and diff hygiene checks. Empty automatic recordings are rejected at recorder EOF; failed streaming turns are stopped and allowed to finish before automatic retry. If cleanup cannot settle within its bounds, the call ends with a clear error. See `docs/ACCEPTANCE.md` for exact tested-file hashes, review closure, and the host dependency-environment caveat.
+The 2026-10-29 local source acceptance passed all **74 Python tests** and **20 call-mode/page-adapter tests** in a fresh project environment installed from `requirements-dev.txt`. Dependency consistency, Python compilation, JavaScript and shell parsing, and diff hygiene also passed. The release consolidates the HTTP/HTTPS guidance and microphone hints and adds cancellation checks to automatic Pi turns, including non-streaming and non-DeepSeek fallback paths. See `docs/ACCEPTANCE.md` for exact versions, regression evidence, tested-file hashes, review closure, and remaining limits.
 
-This is source acceptance for GitHub publication. No deployment, live Pi connection, provider request, or service change was performed. Before the corrective changes, the local runtime matched the archived 2026-09-03 rollout, which recorded calibrated Pi silence endpointing, DeepSeek streaming, and a physical USB microphone/M83 speaker loop. Those physical results are historical and do not establish the Pi's current runtime or acceptance of these local fixes.
+This is source acceptance for GitHub publication. No deployment, live Pi connection, provider request, or service change was performed. The earlier 2026-09-07 source acceptance and 2026-09-03 physical USB microphone/M83 speaker loop remain dated historical evidence; they do not establish the Pi's current runtime or acceptance of these source fixes.
 
 If ffmpeg is unavailable or segment concatenation fails, history audio replay uses the first segment; live playback and saved full text/segment metadata remain complete. Full history replay in that failure case remains a known limitation.
 

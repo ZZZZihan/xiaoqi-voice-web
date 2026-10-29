@@ -1,14 +1,16 @@
-# XiaoQi trusted LAN HTTPS
+# XiaoQi trusted LAN HTTPS (previous configuration)
 
-## Current endpoint
+The 2026-09-20 deployment record reports a rollback to HTTP at `http://192.168.5.12:8787/` so LAN clients could open the page without trusting the dedicated local CA. The ThinkBook could reach TCP port `8787`, but its HTTPS request failed with `SEC_E_UNTRUSTED_ROOT`; after rollback its HTTP GET returned 200. LAN HTTP cannot use the browser microphone because it is not a secure context. This source review did not recheck the Raspberry Pi's current endpoint. The HTTPS setup below is retained as a historical record and as a reference if trusted browser microphone access is needed again.
+
+## Previous HTTPS endpoint
 
 - Preferred phone URL: `https://pi5.local:8787/`
-- Current-IP fallback: `https://192.168.5.12:8787/`
+- Recorded IP fallback: `https://192.168.5.12:8787/`
 - Raspberry Pi service: `hermes-voice-web.service`
 - Application directory: `/home/pi/.hermes/voice-web`
 - Deployment backup: `/home/pi/.local/state/xiaoqi-https/20260831-112636`
 
-The existing Hermes Voice Web process still owns port `8787`; systemd now starts Uvicorn with an explicit TLS certificate and key. No reverse proxy, public DNS, cloud tunnel, provider change, or secret migration was introduced.
+During the HTTPS rollout, the existing Hermes Voice Web process owned port `8787` and systemd started Uvicorn with an explicit TLS certificate and key. No reverse proxy, public DNS, cloud tunnel, provider change, or secret migration was introduced.
 
 HTTPS supplies the browser secure context needed by `navigator.mediaDevices.getUserMedia`. It does not add user authentication: another device that can reach the Raspberry Pi on the LAN can still load the application, just as it could before this change.
 
@@ -84,7 +86,7 @@ Deployment acceptance on 2026-08-31 covered all of the following:
 - A permission-granted fake microphone track became `live` and was immediately stopped to `ended`; this avoided recording a real microphone or calling the dialogue provider.
 - The application runtime-file hashes and both existing `.env` hashes remained unchanged.
 
-Actual phone acceptance remains a user-side check because installing a trusted root and granting real microphone permission are device security decisions.
+The phone owner completed physical acceptance on 2026-09-01, as recorded in `docs/ACCEPTANCE.md`. A future HTTPS rollout still requires the phone owner to recheck certificate trust, real microphone permission, spoken replies, and microphone release after ending voice mode.
 
 ## Rollback
 

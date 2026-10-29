@@ -1,5 +1,44 @@
 # Acceptance Checklist
 
+## 2026-10-29 GitHub Consolidation and Automatic-Turn Cancellation
+
+Scope: source cleanup based on `5b7fe38d534382f6a55fdbbc816d6de6d6809f69`, preserving the existing HTTP rollback documentation and page changes. The repository's existing default branch is `codex/automatic-voice`; this delivery uses a single PR from `codex/release-cleanup`. This is local source acceptance, without deployment, a live Pi connection, a real provider request, or a service change.
+
+### Delivered Scope and Review Closure
+
+- Startup and voice-mode documentation distinguish the startup script's optional TLS configuration from the dated 2026-09-20 HTTP deployment record. The current device endpoint was not rechecked. Browser hints share the same HTTP microphone guidance, and the existing page assertion follows that guidance.
+- Automatic Pi jobs check cancellation after recording/transcription and before later model, reminder, synthesis, and exchange-saving work. The checks also apply when streaming is disabled and when a non-DeepSeek provider uses the full-answer fallback. Manual recording stops still submit their captured audio.
+- The deployment checklist includes `/call-mode.js` in resource verification and explicitly installs runtime dependencies. Public CA artifacts and historical phone acceptance remain documented as dated evidence.
+- Two supporting agents performed implementation review and release-readiness review. The cancellation implementer and an independent reviewer checked the final runtime change; no blocking finding remained in this scope.
+
+### Local Verification
+
+- A new project `.venv` was installed from `requirements-dev.txt`, including the declared `pytest>=8.0,<9.0` range. `.venv/bin/python -m pytest -q`: **74 passed**. The 11 cancellation cases cover recording and ASR cancellation with streaming on/off, actual non-DeepSeek configuration fallback, cancellation during provider/TTS work, reminder suppression, cancellation during audio concatenation, and manual-stop compatibility.
+- The cancellation tests were also run against an isolated copy of the original `5b7fe38` server: **10 failed, 1 passed**. The passing baseline case is manual-stop compatibility; all 11 pass with the correction.
+- `node --test tests/test_call_mode.js tests/test_pi_streaming.js`: **20 passed**.
+- `.venv/bin/python -m pip check`: no broken requirements. Python compilation, JavaScript syntax checks, parsing the inline page script, shell script parsing, and `git diff --check` passed.
+- Environment: Python **3.14.7**, pytest **8.4.2**, FastAPI **0.162.0**, Uvicorn **0.54.0**, Starlette **1.10.0**, OpenAI client **2.54.0**, httpx **0.28.1**, python-multipart **0.0.32**, Node **26.12.1**. Three deprecation warnings concern FastAPI startup events and Starlette's httpx-based test client; none failed a test.
+- A tracked-file scan found no matches for the checked private-key, common credential-token, and credential-bearing URL patterns. The outgoing change contains source, tests, and documentation; the local environment, caches, original-diff backup, and build output stay excluded. This scan is a limited pattern check, not a guarantee that every possible secret format is detectable.
+
+### Remaining Boundaries
+
+- Cancellation is cooperative between processing stages. An external call already running must return or time out before its worker settles, so immediately restarting a call can still encounter the active-job guard. Completed reminder actions cannot be rolled back; a concurrent stop and persistence operation are not a transaction. An external failure during cancellation may report `error` rather than `cancelled`.
+- Hangup stops requesting later speech segments, but a Pi speaker process already playing a segment is not interrupted by aborting the browser request. Let it finish before starting a new physical microphone turn.
+- If ffmpeg is unavailable or concatenation fails, history audio replay falls back to the first segment; full text and segment metadata remain saved.
+- Real browser microphone permission, physical Pi microphone/speaker behavior, live provider behavior, current HTTP/HTTPS configuration, and device deployment were not revalidated.
+
+### Tested File Provenance
+
+| File | SHA-256 |
+| --- | --- |
+| `server.py` | `3269c21413538aa709c7f55895c9b50b79fefffbb4a3d8973acdc38daba3f983` |
+| `index.html` | `3f38d37ab2b656081beb57ba09b47eefceb78d2da88df34985ba14766a8f26fa` |
+| `requirements.txt` | `8f9b555f9ece9ea319c5ba95294ac9b9a23591d32e0925a176666c120e45ce48` |
+| `tests/test_server.py` | `37fb8f3607091cc4c7c403a38d454eeb0dfe4a44ab9185352caed02519f6a6e9` |
+| `tests/test_pi_cancellation.py` | `788fd19b318ee36d34b7ffb9e659991f28c8f1dd0e716372471da5b8190c7277` |
+| `tests/test_call_mode.js` | `28d30af1805405aadd54f651f961b065aeafc4173483c5a226e03a43a9980b7e` |
+| `tests/test_pi_streaming.js` | `525e9119f5c78d60e1886cddf3ee30e085a3b2dffd0089d7090062d9aa5bed36` |
+
 ## 2026-09-07 Pi Silence Endpointing and DeepSeek Streaming Source Acceptance
 
 Scope: the Pi silence-endpointing and DeepSeek streaming implementation on `codex/automatic-voice`, based on `c7f7ec7848a376c5d08a0f4403bdbe4ff57e79a5`. The accepted revision is the commit containing this entry; the hashes below identify the exact tested source and tests. This is local source acceptance for GitHub publication, with no deployment, live Pi connection, provider request, or service change.
